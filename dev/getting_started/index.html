@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Getting Started · Siena.jl</title><meta name="title" content="Getting Started · Siena.jl"/><meta property="og:title" content="Getting Started · Siena.jl"/><meta property="twitter:title" content="Getting Started · Siena.jl"/><meta name="description" content="Documentation for Siena.jl."/><meta property="og:description" content="Documentation for Siena.jl."/><meta property="twitter:description" content="Documentation for Siena.jl."/><meta property="og:url" content="https://Statistical-network-analysis-with-Julia.github.io/Siena.jl/getting_started/"/><meta property="twitter:url" content="https://Statistical-network-analysis-with-Julia.github.io/Siena.jl/getting_started/"/><link rel="canonical" href="https://Statistical-network-analysis-with-Julia.github.io/Siena.jl/getting_started/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../"><img src="../assets/logo.svg" alt="Siena.jl logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="../">Siena.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Getting Started</a><ul class="internal"><li><a class="tocitem" href="#Installation"><span>Installation</span></a></li><li><a class="tocitem" href="#Basic-Workflow"><span>Basic Workflow</span></a></li><li><a class="tocitem" href="#Step-1:-Prepare-Data"><span>Step 1: Prepare Data</span></a></li><li><a class="tocitem" href="#Step-2:-Define-Effects"><span>Step 2: Define Effects</span></a></li><li><a class="tocitem" href="#Step-3:-Configure-Algorithm"><span>Step 3: Configure Algorithm</span></a></li><li><a class="tocitem" href="#Step-4:-Estimate-Model"><span>Step 4: Estimate Model</span></a></li><li><a class="tocitem" href="#Step-5:-Interpret-Results"><span>Step 5: Interpret Results</span></a></li><li><a class="tocitem" href="#Complete-Example"><span>Complete Example</span></a></li><li><a class="tocitem" href="#Working-with-Behavior-Variables"><span>Working with Behavior Variables</span></a></li><li><a class="tocitem" href="#Best-Practices"><span>Best Practices</span></a></li><li><a class="tocitem" href="#Next-Steps"><span>Next Steps</span></a></li></ul></li><li><span class="tocitem">User Guide</span><ul><li><a class="tocitem" href="../guide/data/">Data Preparation</a></li><li><a class="tocitem" href="../guide/effects/">Effects</a></li><li><a class="tocitem" href="../guide/estimation/">Model Estimation</a></li><li><a class="tocitem" href="../guide/gof/">Goodness of Fit</a></li></ul></li><li><span class="tocitem">API Reference</span><ul><li><a class="tocitem" href="../api/types/">Types</a></li><li><a class="tocitem" href="../api/effects/">Effects</a></li><li><a class="tocitem" href="../api/estimation/">Estimation</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Getting Started</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Getting Started</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/Statistical-network-analysis-with-Julia/Siena.jl/blob/main/docs/src/getting_started.md#" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Getting-Started"><a class="docs-heading-anchor" href="#Getting-Started">Getting Started</a><a id="Getting-Started-1"></a><a class="docs-heading-anchor-permalink" href="#Getting-Started" title="Permalink"></a></h1><p>This tutorial walks through a complete SAOM analysis using Siena.jl, from data preparation to model interpretation.</p><h2 id="Installation"><a class="docs-heading-anchor" href="#Installation">Installation</a><a id="Installation-1"></a><a class="docs-heading-anchor-permalink" href="#Installation" title="Permalink"></a></h2><p>Install Siena.jl from GitHub:</p><pre><code class="language-julia hljs">using Pkg
+Pkg.add(url=&quot;https://github.com/Statistical-network-analysis-with-Julia/Siena.jl&quot;)</code></pre><h2 id="Basic-Workflow"><a class="docs-heading-anchor" href="#Basic-Workflow">Basic Workflow</a><a id="Basic-Workflow-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-Workflow" title="Permalink"></a></h2><p>The typical Siena.jl workflow consists of five steps:</p><ol><li><strong>Prepare data</strong> - Create node sets, dependent variables, and covariates</li><li><strong>Define effects</strong> - Choose which social mechanisms to model</li><li><strong>Configure algorithm</strong> - Set estimation parameters</li><li><strong>Estimate model</strong> - Run <code>siena07</code> for Method of Moments estimation</li><li><strong>Interpret results</strong> - Assess convergence, significance, and goodness of fit</li></ol><h2 id="Step-1:-Prepare-Data"><a class="docs-heading-anchor" href="#Step-1:-Prepare-Data">Step 1: Prepare Data</a><a id="Step-1:-Prepare-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Step-1:-Prepare-Data" title="Permalink"></a></h2><p>SAOM analysis requires panel data: networks (and optionally behavior) observed at two or more time points.</p><h3 id="Create-a-Node-Set"><a class="docs-heading-anchor" href="#Create-a-Node-Set">Create a Node Set</a><a id="Create-a-Node-Set-1"></a><a class="docs-heading-anchor-permalink" href="#Create-a-Node-Set" title="Permalink"></a></h3><pre><code class="language-julia hljs">using Siena
+
+# 50 actors
+nodes = NodeSet(50)
+
+# With named actors
+nodes = NodeSet(5; names=[&quot;Alice&quot;, &quot;Bob&quot;, &quot;Carol&quot;, &quot;David&quot;, &quot;Eve&quot;])</code></pre><h3 id="Define-a-Dependent-Network"><a class="docs-heading-anchor" href="#Define-a-Dependent-Network">Define a Dependent Network</a><a id="Define-a-Dependent-Network-1"></a><a class="docs-heading-anchor-permalink" href="#Define-a-Dependent-Network" title="Permalink"></a></h3><p>Network data consists of adjacency matrices at each observation wave:</p><pre><code class="language-julia hljs"># Three waves of a 50-actor directed network
+n = 50
+wave1 = zeros(Int, n, n)
+wave2 = zeros(Int, n, n)
+wave3 = zeros(Int, n, n)
+
+# Populate with observed ties (1 = tie present, 0 = absent)
+# In practice, load from data files
+using Random
+Random.seed!(42)
+for w in [wave1, wave2, wave3]
+    for i in 1:n, j in 1:n
+        i != j &amp;&amp; rand() &lt; 0.1 &amp;&amp; (w[i,j] = 1)
+    end
+end
+
+# Create dependent network variable
+friendship = DependentNetwork(:friendship, [wave1, wave2, wave3])
+println(&quot;Waves: &quot;, n_waves(friendship))    # 3
+println(&quot;Actors: &quot;, n_actors(friendship))  # 50</code></pre><h3 id="Add-Covariates"><a class="docs-heading-anchor" href="#Add-Covariates">Add Covariates</a><a id="Add-Covariates-1"></a><a class="docs-heading-anchor-permalink" href="#Add-Covariates" title="Permalink"></a></h3><p>Actor-level covariates can be constant or varying across waves:</p><pre><code class="language-julia hljs"># Constant covariate (same value at all waves)
+gender = constant_covariate(:gender, rand(0:1, n))
+
+# Varying covariate (different values at each wave)
+performance = varying_covariate(:performance, [rand(n), rand(n), rand(n)])</code></pre><h3 id="Assemble-the-Data-Object"><a class="docs-heading-anchor" href="#Assemble-the-Data-Object">Assemble the Data Object</a><a id="Assemble-the-Data-Object-1"></a><a class="docs-heading-anchor-permalink" href="#Assemble-the-Data-Object" title="Permalink"></a></h3><pre><code class="language-julia hljs">data = siena_data()
+add_nodeset!(data, nodes)
+add_dependent!(data, friendship)
+add_covariate!(data, gender)
+add_covariate!(data, performance)
+
+println(data)  # SienaData(nodesets=1, dependents=1, covariates=2, waves=3)</code></pre><h2 id="Step-2:-Define-Effects"><a class="docs-heading-anchor" href="#Step-2:-Define-Effects">Step 2: Define Effects</a><a id="Step-2:-Define-Effects-1"></a><a class="docs-heading-anchor-permalink" href="#Step-2:-Define-Effects" title="Permalink"></a></h2><p>Effects specify the social mechanisms you want to test. Start by creating an effects object from the data:</p><pre><code class="language-julia hljs">effects = get_effects(data)
+println(effects)  # SienaEffects(N total, M included)</code></pre><p>By default, only rate effects are included. Add structural effects by their short names:</p><pre><code class="language-julia hljs"># Basic structural effects
+include_effects!(effects, :friendship, [:outdegree, :recip, :transTrip])</code></pre><h3 id="Viewing-Available-Effects"><a class="docs-heading-anchor" href="#Viewing-Available-Effects">Viewing Available Effects</a><a id="Viewing-Available-Effects-1"></a><a class="docs-heading-anchor-permalink" href="#Viewing-Available-Effects" title="Permalink"></a></h3><p>Use <code>effects_table</code> to see all available effects:</p><pre><code class="language-julia hljs">df = effects_table(effects)
+println(df)</code></pre><p>This shows each effect&#39;s name, short name, type, variable, and inclusion status.</p><h3 id="Adding-Covariate-Effects"><a class="docs-heading-anchor" href="#Adding-Covariate-Effects">Adding Covariate Effects</a><a id="Adding-Covariate-Effects-1"></a><a class="docs-heading-anchor-permalink" href="#Adding-Covariate-Effects" title="Permalink"></a></h3><p>If covariates are present, covariate effects are automatically available:</p><pre><code class="language-julia hljs"># Ego and alter effects for gender
+include_effects!(effects, :friendship, [Symbol(&quot;egogender&quot;), Symbol(&quot;altgender&quot;)])
+
+# Homophily: same gender
+include_effects!(effects, :friendship, [Symbol(&quot;samegender&quot;)])</code></pre><h3 id="Common-Effect-Combinations"><a class="docs-heading-anchor" href="#Common-Effect-Combinations">Common Effect Combinations</a><a id="Common-Effect-Combinations-1"></a><a class="docs-heading-anchor-permalink" href="#Common-Effect-Combinations" title="Permalink"></a></h3><table><tr><th style="text-align: right">Model Type</th><th style="text-align: right">Effects to Include</th></tr><tr><td style="text-align: right"><strong>Baseline</strong></td><td style="text-align: right"><code>:outdegree</code>, <code>:recip</code></td></tr><tr><td style="text-align: right"><strong>Transitivity</strong></td><td style="text-align: right"><code>:transTrip</code> or <code>:transTies</code> or <code>:gwesp</code></td></tr><tr><td style="text-align: right"><strong>Popularity/Activity</strong></td><td style="text-align: right"><code>:inPop</code>, <code>:inPopSqrt</code>, <code>:outAct</code>, <code>:outActSqrt</code></td></tr><tr><td style="text-align: right"><strong>Homophily</strong></td><td style="text-align: right"><code>:sameX</code>, <code>:simX</code>, <code>:egoX</code>, <code>:altX</code></td></tr><tr><td style="text-align: right"><strong>Structural balance</strong></td><td style="text-align: right"><code>:balance</code></td></tr><tr><td style="text-align: right"><strong>Cycles</strong></td><td style="text-align: right"><code>:cycle3</code></td></tr></table><h2 id="Step-3:-Configure-Algorithm"><a class="docs-heading-anchor" href="#Step-3:-Configure-Algorithm">Step 3: Configure Algorithm</a><a id="Step-3:-Configure-Algorithm-1"></a><a class="docs-heading-anchor-permalink" href="#Step-3:-Configure-Algorithm" title="Permalink"></a></h2><p>The estimation algorithm has several tuning parameters:</p><pre><code class="language-julia hljs">algorithm = siena_algorithm(
+    n_subphases = 4,           # Number of subphases in phase 2
+    phase1_iterations = 50,    # Iterations for rough estimation
+    phase3_iterations = 1000,  # Iterations for SE estimation
+    initial_gain = 0.2,        # Starting gain parameter
+    convergence_threshold = 0.25,  # Max t-ratio for convergence
+    seed = 42,                 # Random seed for reproducibility
+    verbose = true             # Print progress
+)</code></pre><h3 id="Default-Settings"><a class="docs-heading-anchor" href="#Default-Settings">Default Settings</a><a id="Default-Settings-1"></a><a class="docs-heading-anchor-permalink" href="#Default-Settings" title="Permalink"></a></h3><p>For most analyses, the defaults work well:</p><pre><code class="language-julia hljs">algorithm = siena_algorithm(seed=42)</code></pre><h3 id="Key-Parameters"><a class="docs-heading-anchor" href="#Key-Parameters">Key Parameters</a><a id="Key-Parameters-1"></a><a class="docs-heading-anchor-permalink" href="#Key-Parameters" title="Permalink"></a></h3><table><tr><th style="text-align: right">Parameter</th><th style="text-align: right">Description</th><th style="text-align: right">Default</th><th style="text-align: right">Recommendation</th></tr><tr><td style="text-align: right"><code>n_subphases</code></td><td style="text-align: right">Subphases in phase 2</td><td style="text-align: right">4</td><td style="text-align: right">Increase to 6-8 for difficult models</td></tr><tr><td style="text-align: right"><code>phase1_iterations</code></td><td style="text-align: right">Phase 1 iterations</td><td style="text-align: right">50</td><td style="text-align: right">Rarely needs changing</td></tr><tr><td style="text-align: right"><code>phase3_iterations</code></td><td style="text-align: right">Phase 3 iterations</td><td style="text-align: right">1000</td><td style="text-align: right">Increase for more precise SEs</td></tr><tr><td style="text-align: right"><code>initial_gain</code></td><td style="text-align: right">Starting gain</td><td style="text-align: right">0.2</td><td style="text-align: right">Decrease if estimation is unstable</td></tr><tr><td style="text-align: right"><code>convergence_threshold</code></td><td style="text-align: right">Convergence criterion</td><td style="text-align: right">0.25</td><td style="text-align: right">Use 0.1 for strict convergence</td></tr><tr><td style="text-align: right"><code>seed</code></td><td style="text-align: right">Random seed</td><td style="text-align: right">nothing</td><td style="text-align: right">Always set for reproducibility</td></tr></table><h2 id="Step-4:-Estimate-Model"><a class="docs-heading-anchor" href="#Step-4:-Estimate-Model">Step 4: Estimate Model</a><a id="Step-4:-Estimate-Model-1"></a><a class="docs-heading-anchor-permalink" href="#Step-4:-Estimate-Model" title="Permalink"></a></h2><p>Run the main estimation function:</p><pre><code class="language-julia hljs">result = siena07(data, effects; algorithm=algorithm)</code></pre><p>During estimation, you will see output for each phase:</p><pre><code class="language-text hljs">Starting SAOM estimation
+Number of parameters: 3
+Target statistics computed
+
+--- Phase 1 ---
+  Iteration 10, max deviation: 12.34
+  Iteration 20, max deviation: 5.67
+  ...
+
+--- Phase 2 ---
+  Subphase 1
+  Subphase 2
+  ...
+
+--- Phase 3 ---
+  Iteration 100 / 1000
+  ...
+
+--- Results ---
+Converged: true
+Max t-ratio: 0.08</code></pre><h2 id="Step-5:-Interpret-Results"><a class="docs-heading-anchor" href="#Step-5:-Interpret-Results">Step 5: Interpret Results</a><a id="Step-5:-Interpret-Results-1"></a><a class="docs-heading-anchor-permalink" href="#Step-5:-Interpret-Results" title="Permalink"></a></h2><h3 id="Viewing-Results"><a class="docs-heading-anchor" href="#Viewing-Results">Viewing Results</a><a id="Viewing-Results-1"></a><a class="docs-heading-anchor-permalink" href="#Viewing-Results" title="Permalink"></a></h3><pre><code class="language-julia hljs">println(result)</code></pre><p>Output:</p><pre><code class="language-text hljs">SAOM Estimation Results
+=======================
+Converged: true
+Iterations: 1250
+
+Parameter Estimates:
+--------------------
+outdegree           -2.1234 (0.1456) *
+recip                1.8901 (0.2345) *
+transTrip            0.3456 (0.0789) *
+
+Rate Parameters:
+----------------
+Rate friendship period 1:   5.4321
+Rate friendship period 2:   6.7890</code></pre><h3 id="Accessing-Results-Programmatically"><a class="docs-heading-anchor" href="#Accessing-Results-Programmatically">Accessing Results Programmatically</a><a id="Accessing-Results-Programmatically-1"></a><a class="docs-heading-anchor-permalink" href="#Accessing-Results-Programmatically" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Coefficient vector
+coef(result)
+
+# Standard errors
+stderror(result)
+
+# Covariance matrix
+vcov(result)
+
+# Confidence intervals (95%)
+ci = confint(result)
+
+# Custom confidence level
+ci90 = confint(result; level=0.90)</code></pre><h3 id="Interpreting-Coefficients"><a class="docs-heading-anchor" href="#Interpreting-Coefficients">Interpreting Coefficients</a><a id="Interpreting-Coefficients-1"></a><a class="docs-heading-anchor-permalink" href="#Interpreting-Coefficients" title="Permalink"></a></h3><p>Coefficients represent the weight of each effect in the objective function:</p><table><tr><th style="text-align: right">Coefficient</th><th style="text-align: right">Interpretation</th></tr><tr><td style="text-align: right">beta &gt; 0</td><td style="text-align: right">Effect increases probability of tie formation / behavior increase</td></tr><tr><td style="text-align: right">beta &lt; 0</td><td style="text-align: right">Effect decreases probability of tie formation / behavior increase</td></tr><tr><td style="text-align: right">beta = 0</td><td style="text-align: right">No effect</td></tr></table><p><strong>Example interpretations:</strong></p><ul><li><code>outdegree = -2.1</code> – Negative density effect indicates a general tendency against forming ties (networks are typically sparse)</li><li><code>recip = 1.9</code> – Strong positive reciprocity: actors prefer to reciprocate ties</li><li><code>transTrip = 0.35</code> – Positive transitivity: friends of friends tend to become friends</li></ul><h3 id="Checking-Convergence"><a class="docs-heading-anchor" href="#Checking-Convergence">Checking Convergence</a><a id="Checking-Convergence-1"></a><a class="docs-heading-anchor-permalink" href="#Checking-Convergence" title="Permalink"></a></h3><p>Convergence is assessed via t-ratios (deviation / standard deviation):</p><pre><code class="language-julia hljs">if result.converged
+    println(&quot;Model converged successfully&quot;)
+    println(&quot;Max t-ratio: &quot;, maximum(abs.(result.t_ratios)))
+else
+    println(&quot;WARNING: Model did not converge&quot;)
+    println(&quot;t-ratios: &quot;, result.t_ratios)
+end</code></pre><p><strong>Convergence guidelines:</strong></p><p>| Max |t-ratio| | Assessment | |––––––––-|––––––| | &lt; 0.1 | Excellent convergence | | 0.1 - 0.2 | Adequate convergence | | 0.2 - 0.25 | Borderline – consider re-running | | &gt; 0.25 | Not converged – do not interpret results |</p><h3 id="Goodness-of-Fit"><a class="docs-heading-anchor" href="#Goodness-of-Fit">Goodness of Fit</a><a id="Goodness-of-Fit-1"></a><a class="docs-heading-anchor-permalink" href="#Goodness-of-Fit" title="Permalink"></a></h3><p>After estimation, assess whether the model reproduces key network features:</p><pre><code class="language-julia hljs"># GOF for indegree distribution
+gof_in = siena_gof_indegree(result, data, :friendship; n_sims=100, seed=42)
+println(gof_in)
+
+# GOF for outdegree distribution
+gof_out = siena_gof_outdegree(result, data, :friendship; n_sims=100, seed=42)
+
+# GOF for triad census
+gof_triad = siena_gof_triad(result, data, :friendship; n_sims=100, seed=42)</code></pre><p>A high overall p-value (&gt; 0.05) indicates the model fits well for that statistic.</p><h2 id="Complete-Example"><a class="docs-heading-anchor" href="#Complete-Example">Complete Example</a><a id="Complete-Example-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-Example" title="Permalink"></a></h2><pre><code class="language-julia hljs">using Siena
+using Random
+
+Random.seed!(123)
+
+# === Data Preparation ===
+n = 30
+data = siena_data()
+add_nodeset!(data, NodeSet(n))
+
+# Generate 3-wave network with clear structure
+waves = Matrix{Int}[]
+for w in 1:3
+    net = zeros(Int, n, n)
+    for i in 1:n, j in 1:n
+        i != j &amp;&amp; rand() &lt; 0.08 + 0.02*w &amp;&amp; (net[i,j] = 1)
+    end
+    push!(waves, net)
+end
+add_dependent!(data, DependentNetwork(:net, waves))
+
+# Add a covariate
+group = constant_covariate(:group, rand(1:3, n))
+add_covariate!(data, group)
+
+# === Effects ===
+effects = get_effects(data)
+include_effects!(effects, :net, [:outdegree, :recip, :transTrip])
+include_effects!(effects, :net, [Symbol(&quot;samegroup&quot;)])
+
+# === Estimation ===
+alg = siena_algorithm(seed=42, phase3_iterations=500, verbose=false)
+result = siena07(data, effects; algorithm=alg)
+
+# === Results ===
+println(result)
+println(&quot;\nConfidence intervals:&quot;)
+ci = confint(result)
+for (i, entry) in enumerate(get_objective_effects(result.effects))
+    if !entry.fix
+        println(&quot;  $(entry.shortname): [$(round(ci[i,1], digits=3)), $(round(ci[i,2], digits=3))]&quot;)
+    end
+end
+
+# === Goodness of Fit ===
+gof = siena_gof_indegree(result, data, :net; n_sims=50, seed=42)
+println(&quot;\n&quot;, gof)</code></pre><h2 id="Working-with-Behavior-Variables"><a class="docs-heading-anchor" href="#Working-with-Behavior-Variables">Working with Behavior Variables</a><a id="Working-with-Behavior-Variables-1"></a><a class="docs-heading-anchor-permalink" href="#Working-with-Behavior-Variables" title="Permalink"></a></h2><p>SAOMs can jointly model network and behavior dynamics (co-evolution):</p><pre><code class="language-julia hljs">using Siena
+
+n = 40
+data = siena_data()
+add_nodeset!(data, NodeSet(n))
+
+# Network data
+waves = [rand(0:1, n, n) for _ in 1:3]
+for w in waves; w[diagind(w)] .= 0; end
+add_dependent!(data, DependentNetwork(:friendship, waves))
+
+# Behavior data (integer values, e.g., substance use on 1-5 scale)
+beh_waves = [rand(1:5, n) for _ in 1:3]
+add_dependent!(data, DependentBehavior(:drinking, beh_waves))
+
+# Get effects for both variables
+effects = get_effects(data)
+
+# Network effects
+include_effects!(effects, :friendship, [:outdegree, :recip, :transTrip])
+
+# Behavior effects: shape and influence
+include_effects!(effects, :drinking, [:linear, :quad])
+include_effects!(effects, :drinking, [Symbol(&quot;avAltfriendship&quot;)])
+
+# Estimate
+result = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+println(result)</code></pre><h3 id="Interpreting-Co-Evolution-Results"><a class="docs-heading-anchor" href="#Interpreting-Co-Evolution-Results">Interpreting Co-Evolution Results</a><a id="Interpreting-Co-Evolution-Results-1"></a><a class="docs-heading-anchor-permalink" href="#Interpreting-Co-Evolution-Results" title="Permalink"></a></h3><p>In co-evolution models, you can distinguish:</p><ul><li><strong>Selection effects</strong> (network part): Do actors form ties based on behavioral similarity?<ul><li>Use <code>SimilarityEffect</code>, <code>SameEffect</code> in the network model</li></ul></li><li><strong>Influence effects</strong> (behavior part): Does network position affect behavior change?<ul><li>Use <code>AverageAlterEffect</code>, <code>TotalAlterEffect</code> in the behavior model</li></ul></li></ul><h2 id="Best-Practices"><a class="docs-heading-anchor" href="#Best-Practices">Best Practices</a><a id="Best-Practices-1"></a><a class="docs-heading-anchor-permalink" href="#Best-Practices" title="Permalink"></a></h2><ol><li><strong>Start simple</strong>: Begin with basic structural effects (outdegree, reciprocity) before adding complexity</li><li><strong>Check convergence</strong>: Always verify <code>result.converged == true</code> with t-ratios &lt; 0.1</li><li><strong>Set random seed</strong>: Use <code>seed</code> in <code>siena_algorithm()</code> for reproducible results</li><li><strong>Re-run if needed</strong>: If convergence is borderline, re-run with the previous estimates as starting values</li><li><strong>Assess GOF</strong>: Test indegree, outdegree, and triad census distributions after estimation</li><li><strong>Iterative model building</strong>: Add effects one at a time and check convergence after each addition</li><li><strong>Sufficient observations</strong>: At least 20 actors and 2 waves; 3+ waves preferred</li><li><strong>Avoid redundant effects</strong>: Do not include highly correlated effects simultaneously</li><li><strong>Center covariates</strong>: Covariates are centered by default; this improves estimation stability</li><li><strong>Monitor rate parameters</strong>: Rate parameters should be positive and reasonable (typically 2-20)</li></ol><h2 id="Next-Steps"><a class="docs-heading-anchor" href="#Next-Steps">Next Steps</a><a id="Next-Steps-1"></a><a class="docs-heading-anchor-permalink" href="#Next-Steps" title="Permalink"></a></h2><ul><li>Learn about <a href="../guide/data/">Data Preparation</a> for detailed data handling</li><li>Explore all available <a href="../guide/effects/">Effects</a></li><li>Understand <a href="../guide/estimation/">Model Estimation</a> in depth</li><li>Assess model fit with <a href="../guide/gof/">Goodness of Fit</a> testing</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../guide/data/">Data Preparation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Monday 16 February 2026 17:55">Monday 16 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

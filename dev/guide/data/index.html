@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Data Preparation · Siena.jl</title><meta name="title" content="Data Preparation · Siena.jl"/><meta property="og:title" content="Data Preparation · Siena.jl"/><meta property="twitter:title" content="Data Preparation · Siena.jl"/><meta name="description" content="Documentation for Siena.jl."/><meta property="og:description" content="Documentation for Siena.jl."/><meta property="twitter:description" content="Documentation for Siena.jl."/><meta property="og:url" content="https://Statistical-network-analysis-with-Julia.github.io/Siena.jl/guide/data/"/><meta property="twitter:url" content="https://Statistical-network-analysis-with-Julia.github.io/Siena.jl/guide/data/"/><link rel="canonical" href="https://Statistical-network-analysis-with-Julia.github.io/Siena.jl/guide/data/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../../"><img src="../../assets/logo.svg" alt="Siena.jl logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="../../">Siena.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><a class="tocitem" href="../../getting_started/">Getting Started</a></li><li><span class="tocitem">User Guide</span><ul><li class="is-active"><a class="tocitem" href>Data Preparation</a><ul class="internal"><li><a class="tocitem" href="#Overview"><span>Overview</span></a></li><li><a class="tocitem" href="#Node-Sets"><span>Node Sets</span></a></li><li><a class="tocitem" href="#Dependent-Network-Variables"><span>Dependent Network Variables</span></a></li><li><a class="tocitem" href="#Dependent-Behavior-Variables"><span>Dependent Behavior Variables</span></a></li><li><a class="tocitem" href="#Covariates"><span>Covariates</span></a></li><li><a class="tocitem" href="#Assembling-the-SienaData-Object"><span>Assembling the SienaData Object</span></a></li><li><a class="tocitem" href="#Network-State"><span>Network State</span></a></li><li><a class="tocitem" href="#Composition-Change"><span>Composition Change</span></a></li><li><a class="tocitem" href="#Data-Validation-Tips"><span>Data Validation Tips</span></a></li><li><a class="tocitem" href="#Complete-Data-Setup-Example"><span>Complete Data Setup Example</span></a></li></ul></li><li><a class="tocitem" href="../effects/">Effects</a></li><li><a class="tocitem" href="../estimation/">Model Estimation</a></li><li><a class="tocitem" href="../gof/">Goodness of Fit</a></li></ul></li><li><span class="tocitem">API Reference</span><ul><li><a class="tocitem" href="../../api/types/">Types</a></li><li><a class="tocitem" href="../../api/effects/">Effects</a></li><li><a class="tocitem" href="../../api/estimation/">Estimation</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">User Guide</a></li><li class="is-active"><a href>Data Preparation</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Data Preparation</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/Statistical-network-analysis-with-Julia/Siena.jl/blob/main/docs/src/guide/data.md#" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Data-Preparation"><a class="docs-heading-anchor" href="#Data-Preparation">Data Preparation</a><a id="Data-Preparation-1"></a><a class="docs-heading-anchor-permalink" href="#Data-Preparation" title="Permalink"></a></h1><p>This guide covers how to prepare data for SAOM analysis in Siena.jl. The data layer mirrors the RSiena API with Julia-idiomatic types.</p><h2 id="Overview"><a class="docs-heading-anchor" href="#Overview">Overview</a><a id="Overview-1"></a><a class="docs-heading-anchor-permalink" href="#Overview" title="Permalink"></a></h2><p>A SAOM analysis requires:</p><ol><li>A <strong>node set</strong> defining the actors</li><li>One or more <strong>dependent variables</strong> (networks and/or behaviors) observed at multiple waves</li><li>Optionally, <strong>covariates</strong> (actor-level or dyadic, constant or varying)</li></ol><p>All data is assembled into a <a href="../../api/types/#SienaData"><code>SienaData</code></a> container.</p><h2 id="Node-Sets"><a class="docs-heading-anchor" href="#Node-Sets">Node Sets</a><a id="Node-Sets-1"></a><a class="docs-heading-anchor-permalink" href="#Node-Sets" title="Permalink"></a></h2><p>A <a href="../../api/types/#NodeSet"><code>NodeSet</code></a> defines the set of actors in the analysis:</p><pre><code class="language-julia hljs">using Siena
+
+# Basic: 50 actors with auto-generated names (&quot;1&quot;, &quot;2&quot;, ...)
+nodes = NodeSet(50)
+
+# With custom names
+nodes = NodeSet(5; names=[&quot;Alice&quot;, &quot;Bob&quot;, &quot;Carol&quot;, &quot;David&quot;, &quot;Eve&quot;])
+
+# With a custom identifier (useful for two-mode networks)
+students = NodeSet(30; id=:students)
+teachers = NodeSet(10; id=:teachers)</code></pre><h3 id="Node-Set-Properties"><a class="docs-heading-anchor" href="#Node-Set-Properties">Node Set Properties</a><a id="Node-Set-Properties-1"></a><a class="docs-heading-anchor-permalink" href="#Node-Set-Properties" title="Permalink"></a></h3><pre><code class="language-julia hljs">nodes = NodeSet(50)
+
+length(nodes)   # 50
+nodes.n         # 50
+nodes.id        # :actors (default)
+nodes.names     # [&quot;1&quot;, &quot;2&quot;, ..., &quot;50&quot;]</code></pre><h3 id="Using-the-Convenience-Constructor"><a class="docs-heading-anchor" href="#Using-the-Convenience-Constructor">Using the Convenience Constructor</a><a id="Using-the-Convenience-Constructor-1"></a><a class="docs-heading-anchor-permalink" href="#Using-the-Convenience-Constructor" title="Permalink"></a></h3><pre><code class="language-julia hljs">nodes = siena_nodeset(50; id=:actors)</code></pre><h2 id="Dependent-Network-Variables"><a class="docs-heading-anchor" href="#Dependent-Network-Variables">Dependent Network Variables</a><a id="Dependent-Network-Variables-1"></a><a class="docs-heading-anchor-permalink" href="#Dependent-Network-Variables" title="Permalink"></a></h2><p>A <a href="../../api/types/#DependentNetwork"><code>DependentNetwork</code></a> represents a network observed at multiple time points. Each observation is an adjacency matrix where entry <code>(i, j) = 1</code> indicates a tie from actor <code>i</code> to actor <code>j</code>.</p><h3 id="Creating-from-Adjacency-Matrices"><a class="docs-heading-anchor" href="#Creating-from-Adjacency-Matrices">Creating from Adjacency Matrices</a><a id="Creating-from-Adjacency-Matrices-1"></a><a class="docs-heading-anchor-permalink" href="#Creating-from-Adjacency-Matrices" title="Permalink"></a></h3><pre><code class="language-julia hljs">n = 30
+
+# Create adjacency matrices for 3 waves
+wave1 = zeros(Int, n, n)
+wave2 = zeros(Int, n, n)
+wave3 = zeros(Int, n, n)
+
+# Populate with observed data
+# (In practice, load from files or DataFrames)
+wave1[1, 2] = 1  # Actor 1 -&gt; Actor 2 at wave 1
+wave1[2, 1] = 1  # Actor 2 -&gt; Actor 1 at wave 1
+wave1[1, 3] = 1  # Actor 1 -&gt; Actor 3 at wave 1
+
+# Create the dependent network
+friendship = DependentNetwork(:friendship, [wave1, wave2, wave3])</code></pre><h3 id="Network-Properties"><a class="docs-heading-anchor" href="#Network-Properties">Network Properties</a><a id="Network-Properties-1"></a><a class="docs-heading-anchor-permalink" href="#Network-Properties" title="Permalink"></a></h3><pre><code class="language-julia hljs">n_waves(friendship)   # 3
+n_actors(friendship)  # 30
+friendship.name       # :friendship
+friendship.directed   # true (default)
+friendship.type       # :onemode (default)</code></pre><h3 id="Network-Options"><a class="docs-heading-anchor" href="#Network-Options">Network Options</a><a id="Network-Options-1"></a><a class="docs-heading-anchor-permalink" href="#Network-Options" title="Permalink"></a></h3><table><tr><th style="text-align: right">Parameter</th><th style="text-align: right">Type</th><th style="text-align: right">Default</th><th style="text-align: right">Description</th></tr><tr><td style="text-align: right"><code>name</code></td><td style="text-align: right"><code>Symbol</code></td><td style="text-align: right">Required</td><td style="text-align: right">Variable name</td></tr><tr><td style="text-align: right"><code>networks</code></td><td style="text-align: right"><code>Vector{Matrix{Int}}</code></td><td style="text-align: right">Required</td><td style="text-align: right">Adjacency matrices</td></tr><tr><td style="text-align: right"><code>type</code></td><td style="text-align: right"><code>Symbol</code></td><td style="text-align: right"><code>:onemode</code></td><td style="text-align: right"><code>:onemode</code>, <code>:twomode</code>, or <code>:bipartite</code></td></tr><tr><td style="text-align: right"><code>directed</code></td><td style="text-align: right"><code>Bool</code></td><td style="text-align: right"><code>true</code></td><td style="text-align: right">Whether the network is directed</td></tr><tr><td style="text-align: right"><code>allow_self_loops</code></td><td style="text-align: right"><code>Bool</code></td><td style="text-align: right"><code>false</code></td><td style="text-align: right">Whether self-ties are allowed</td></tr><tr><td style="text-align: right"><code>nodeset1</code></td><td style="text-align: right"><code>Symbol</code></td><td style="text-align: right"><code>:actors</code></td><td style="text-align: right">ID of the row node set</td></tr><tr><td style="text-align: right"><code>nodeset2</code></td><td style="text-align: right"><code>Symbol</code></td><td style="text-align: right"><code>nothing</code></td><td style="text-align: right">ID of the column node set (bipartite)</td></tr></table><h3 id="Two-Mode-Networks"><a class="docs-heading-anchor" href="#Two-Mode-Networks">Two-Mode Networks</a><a id="Two-Mode-Networks-1"></a><a class="docs-heading-anchor-permalink" href="#Two-Mode-Networks" title="Permalink"></a></h3><p>For bipartite networks connecting two different types of nodes:</p><pre><code class="language-julia hljs"># 20 students connected to 10 clubs
+n_students = 20
+n_clubs = 10
+
+# Affiliation matrices (student x club)
+aff1 = rand(0:1, n_students, n_clubs)
+aff2 = rand(0:1, n_students, n_clubs)
+
+membership = DependentNetwork(:membership, [aff1, aff2];
+    type=:twomode,
+    nodeset1=:students,
+    nodeset2=:clubs
+)</code></pre><h3 id="Using-the-Convenience-Constructor-2"><a class="docs-heading-anchor" href="#Using-the-Convenience-Constructor-2">Using the Convenience Constructor</a><a class="docs-heading-anchor-permalink" href="#Using-the-Convenience-Constructor-2" title="Permalink"></a></h3><pre><code class="language-julia hljs">net = siena_dependent(:friendship, [wave1, wave2, wave3])</code></pre><h2 id="Dependent-Behavior-Variables"><a class="docs-heading-anchor" href="#Dependent-Behavior-Variables">Dependent Behavior Variables</a><a id="Dependent-Behavior-Variables-1"></a><a class="docs-heading-anchor-permalink" href="#Dependent-Behavior-Variables" title="Permalink"></a></h2><p>A <a href="../../api/types/#DependentBehavior"><code>DependentBehavior</code></a> represents an ordinal or integer-valued behavior observed across waves. Each observation is a vector of values for all actors.</p><h3 id="Creating-Behavior-Variables"><a class="docs-heading-anchor" href="#Creating-Behavior-Variables">Creating Behavior Variables</a><a id="Creating-Behavior-Variables-1"></a><a class="docs-heading-anchor-permalink" href="#Creating-Behavior-Variables" title="Permalink"></a></h3><pre><code class="language-julia hljs">n = 30
+
+# Behavior values at each wave (e.g., substance use on 1-5 scale)
+beh_wave1 = rand(1:5, n)
+beh_wave2 = rand(1:5, n)
+beh_wave3 = rand(1:5, n)
+
+drinking = DependentBehavior(:drinking, [beh_wave1, beh_wave2, beh_wave3])</code></pre><h3 id="Behavior-Properties"><a class="docs-heading-anchor" href="#Behavior-Properties">Behavior Properties</a><a id="Behavior-Properties-1"></a><a class="docs-heading-anchor-permalink" href="#Behavior-Properties" title="Permalink"></a></h3><pre><code class="language-julia hljs">n_waves(drinking)    # 3
+n_actors(drinking)   # 30
+drinking.name        # :drinking
+drinking.min_val     # 1 (automatically detected)
+drinking.max_val     # 5 (automatically detected)</code></pre><h3 id="Specifying-Range-Explicitly"><a class="docs-heading-anchor" href="#Specifying-Range-Explicitly">Specifying Range Explicitly</a><a id="Specifying-Range-Explicitly-1"></a><a class="docs-heading-anchor-permalink" href="#Specifying-Range-Explicitly" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Override auto-detected range
+exercise = DependentBehavior(:exercise, [beh_wave1, beh_wave2, beh_wave3];
+    min_val=0, max_val=7
+)</code></pre><h3 id="Using-the-Convenience-Constructor-3"><a class="docs-heading-anchor" href="#Using-the-Convenience-Constructor-3">Using the Convenience Constructor</a><a class="docs-heading-anchor-permalink" href="#Using-the-Convenience-Constructor-3" title="Permalink"></a></h3><pre><code class="language-julia hljs">beh = siena_dependent(:drinking, [beh_wave1, beh_wave2, beh_wave3])</code></pre><h2 id="Covariates"><a class="docs-heading-anchor" href="#Covariates">Covariates</a><a id="Covariates-1"></a><a class="docs-heading-anchor-permalink" href="#Covariates" title="Permalink"></a></h2><p>Covariates are predictor variables that are not modeled as dependent. They can be actor-level or dyadic, and constant or varying across waves.</p><h3 id="Constant-Covariates"><a class="docs-heading-anchor" href="#Constant-Covariates">Constant Covariates</a><a id="Constant-Covariates-1"></a><a class="docs-heading-anchor-permalink" href="#Constant-Covariates" title="Permalink"></a></h3><p>A <a href="../../api/types/#ConstantCovariate"><code>ConstantCovariate</code></a> has the same value for each actor across all waves:</p><pre><code class="language-julia hljs"># Gender (binary)
+gender = constant_covariate(:gender, [0, 1, 0, 1, 1, 0, 0, 1, 1, 0])
+
+# Age (continuous)
+age = constant_covariate(:age, [15.2, 16.1, 15.8, 14.9, 16.3, 15.5, 14.7, 15.9, 16.0, 15.1])</code></pre><p>By default, covariates are centered (mean-subtracted). To disable centering:</p><pre><code class="language-julia hljs"># Uncentered
+gender_raw = ConstantCovariate(:gender_raw, [0, 1, 0, 1, 1]; center=false)</code></pre><h3 id="Varying-Covariates"><a class="docs-heading-anchor" href="#Varying-Covariates">Varying Covariates</a><a id="Varying-Covariates-1"></a><a class="docs-heading-anchor-permalink" href="#Varying-Covariates" title="Permalink"></a></h3><p>A <a href="../../api/types/#VaryingCovariate"><code>VaryingCovariate</code></a> has different values at each wave:</p><pre><code class="language-julia hljs"># GPA changing over 3 waves
+gpa = varying_covariate(:gpa, [
+    [3.5, 3.2, 3.8, 3.1, 3.6],  # Wave 1
+    [3.6, 3.1, 3.9, 3.3, 3.5],  # Wave 2
+    [3.4, 3.3, 3.7, 3.2, 3.7],  # Wave 3
+])</code></pre><h3 id="Constant-Dyadic-Covariates"><a class="docs-heading-anchor" href="#Constant-Dyadic-Covariates">Constant Dyadic Covariates</a><a id="Constant-Dyadic-Covariates-1"></a><a class="docs-heading-anchor-permalink" href="#Constant-Dyadic-Covariates" title="Permalink"></a></h3><p>A <a href="../../api/types/#ConstantDyadCovariate"><code>ConstantDyadCovariate</code></a> is a matrix of values for each pair of actors:</p><pre><code class="language-julia hljs">n = 10
+
+# Geographical distance between actors
+distances = rand(n, n)
+distances = (distances + distances&#39;) / 2  # Symmetrize
+geo = constant_dyad_covariate(:distance, distances)</code></pre><h3 id="Varying-Dyadic-Covariates"><a class="docs-heading-anchor" href="#Varying-Dyadic-Covariates">Varying Dyadic Covariates</a><a id="Varying-Dyadic-Covariates-1"></a><a class="docs-heading-anchor-permalink" href="#Varying-Dyadic-Covariates" title="Permalink"></a></h3><p>A <a href="../../api/types/#VaryingDyadCovariate"><code>VaryingDyadCovariate</code></a> changes across waves:</p><pre><code class="language-julia hljs">n = 10
+
+# Shared class membership at each wave
+shared1 = rand(0:1, n, n)
+shared2 = rand(0:1, n, n)
+shared3 = rand(0:1, n, n)
+
+shared_class = varying_dyad_covariate(:shared_class, [shared1, shared2, shared3])</code></pre><h3 id="Covariate-Properties"><a class="docs-heading-anchor" href="#Covariate-Properties">Covariate Properties</a><a id="Covariate-Properties-1"></a><a class="docs-heading-anchor-permalink" href="#Covariate-Properties" title="Permalink"></a></h3><table><tr><th style="text-align: right">Type</th><th style="text-align: right">Fields</th><th style="text-align: right">Centering</th></tr><tr><td style="text-align: right"><code>ConstantCovariate</code></td><td style="text-align: right"><code>values::Vector{Float64}</code></td><td style="text-align: right">Mean-centered by default</td></tr><tr><td style="text-align: right"><code>VaryingCovariate</code></td><td style="text-align: right"><code>values::Vector{Vector{Float64}}</code></td><td style="text-align: right">Overall mean-centered</td></tr><tr><td style="text-align: right"><code>ConstantDyadCovariate</code></td><td style="text-align: right"><code>values::Matrix{Float64}</code></td><td style="text-align: right">Mean-centered by default</td></tr><tr><td style="text-align: right"><code>VaryingDyadCovariate</code></td><td style="text-align: right"><code>values::Vector{Matrix{Float64}}</code></td><td style="text-align: right">Overall mean-centered</td></tr></table><p>All covariates store:</p><ul><li><code>name::Symbol</code> – Covariate identifier</li><li><code>centered::Bool</code> – Whether centering was applied</li><li><code>mean::Float64</code> – The mean used for centering</li></ul><h2 id="Assembling-the-SienaData-Object"><a class="docs-heading-anchor" href="#Assembling-the-SienaData-Object">Assembling the SienaData Object</a><a id="Assembling-the-SienaData-Object-1"></a><a class="docs-heading-anchor-permalink" href="#Assembling-the-SienaData-Object" title="Permalink"></a></h2><p>The <a href="../../api/types/#SienaData"><code>SienaData</code></a> container holds all data components:</p><pre><code class="language-julia hljs"># Create empty container
+data = siena_data()
+
+# Add node set (required)
+add_nodeset!(data, NodeSet(30))
+
+# Add dependent variables (at least one required)
+add_dependent!(data, friendship)
+add_dependent!(data, drinking)  # Optional second dependent
+
+# Add covariates (optional)
+add_covariate!(data, gender)
+add_covariate!(data, age)
+add_covariate!(data, geo)
+
+println(data)
+# SienaData(nodesets=1, dependents=2, covariates=3, waves=3)</code></pre><h3 id="Validation"><a class="docs-heading-anchor" href="#Validation">Validation</a><a id="Validation-1"></a><a class="docs-heading-anchor-permalink" href="#Validation" title="Permalink"></a></h3><p>The <code>SienaData</code> object validates consistency:</p><pre><code class="language-julia hljs"># All dependent variables must have the same number of waves
+net_2wave = DependentNetwork(:net2, [wave1, wave2])        # 2 waves
+beh_3wave = DependentBehavior(:beh3, [beh_wave1, beh_wave2, beh_wave3])  # 3 waves
+
+data = siena_data()
+add_nodeset!(data, NodeSet(30))
+add_dependent!(data, net_2wave)
+# add_dependent!(data, beh_3wave)  # ERROR: Number of waves must be consistent</code></pre><h3 id="Accessing-Data-Components"><a class="docs-heading-anchor" href="#Accessing-Data-Components">Accessing Data Components</a><a id="Accessing-Data-Components-1"></a><a class="docs-heading-anchor-permalink" href="#Accessing-Data-Components" title="Permalink"></a></h3><pre><code class="language-julia hljs">data.nodesets        # Dict{Symbol, NodeSet}
+data.dependents      # Dict{Symbol, AbstractDependent}
+data.covariates      # Dict{Symbol, AbstractCovariate}
+data.n_waves         # Number of observation waves</code></pre><h2 id="Network-State"><a class="docs-heading-anchor" href="#Network-State">Network State</a><a id="Network-State-1"></a><a class="docs-heading-anchor-permalink" href="#Network-State" title="Permalink"></a></h2><p>The <a href="../../api/types/#NetworkState"><code>NetworkState</code></a> represents the current state of networks and behaviors during simulation. It is primarily used internally but can be useful for inspection:</p><pre><code class="language-julia hljs">state = NetworkState()
+initialize!(state, data, 1)  # Initialize from wave 1
+
+# Access current network
+net = state.networks[:friendship]  # Matrix{Int}
+
+# Access current behavior
+beh = state.behaviors[:drinking]   # Vector{Int}
+
+# Current simulation time
+state.time  # Float64</code></pre><h3 id="Initializing-from-Different-Waves"><a class="docs-heading-anchor" href="#Initializing-from-Different-Waves">Initializing from Different Waves</a><a id="Initializing-from-Different-Waves-1"></a><a class="docs-heading-anchor-permalink" href="#Initializing-from-Different-Waves" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Start from wave 1 (for forward simulation)
+initialize!(state, data, 1)
+
+# Start from wave 2 (for period 2 simulation)
+initialize!(state, data, 2)</code></pre><h2 id="Composition-Change"><a class="docs-heading-anchor" href="#Composition-Change">Composition Change</a><a id="Composition-Change-1"></a><a class="docs-heading-anchor-permalink" href="#Composition-Change" title="Permalink"></a></h2><p>If actors join or leave the network between waves, use <a href="../../api/types/#CompositionChange"><code>CompositionChange</code></a>:</p><pre><code class="language-julia hljs">cc = CompositionChange()
+
+# Actor 5 leaves after wave 1
+add_change!(cc, 5, 1, :leave)
+
+# Actor 31 joins at wave 2
+add_change!(cc, 31, 2, :join)
+
+# Attach to data
+data.composition_change = cc</code></pre><h2 id="Data-Validation-Tips"><a class="docs-heading-anchor" href="#Data-Validation-Tips">Data Validation Tips</a><a id="Data-Validation-Tips-1"></a><a class="docs-heading-anchor-permalink" href="#Data-Validation-Tips" title="Permalink"></a></h2><h3 id="Network-Data"><a class="docs-heading-anchor" href="#Network-Data">Network Data</a><a id="Network-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Network-Data" title="Permalink"></a></h3><ol><li><strong>Square matrices</strong>: One-mode networks must have square adjacency matrices</li><li><strong>No self-loops</strong>: Diagonal entries should be 0 (unless <code>allow_self_loops=true</code>)</li><li><strong>Binary values</strong>: Entries should be 0 or 1</li><li><strong>Consistent size</strong>: All wave matrices must have the same dimensions</li></ol><pre><code class="language-julia hljs"># Validate network data
+for (w, net) in enumerate(waves)
+    @assert size(net, 1) == size(net, 2) &quot;Wave $w: matrix not square&quot;
+    @assert all(net[diagind(net)] .== 0) &quot;Wave $w: self-loops present&quot;
+    @assert all(x -&gt; x in (0, 1), net) &quot;Wave $w: non-binary values&quot;
+end</code></pre><h3 id="Behavior-Data"><a class="docs-heading-anchor" href="#Behavior-Data">Behavior Data</a><a id="Behavior-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Behavior-Data" title="Permalink"></a></h3><ol><li><strong>Integer values</strong>: Behavior values must be integers</li><li><strong>Consistent range</strong>: Values should span a reasonable range (typically 1-5 or 1-7)</li><li><strong>Sufficient variation</strong>: At least some change between waves is needed</li></ol><pre><code class="language-julia hljs"># Check behavior variation
+for w in 2:length(beh_waves)
+    changes = sum(beh_waves[w] .!= beh_waves[w-1])
+    println(&quot;Wave $w: $changes actors changed behavior&quot;)
+end</code></pre><h3 id="Covariate-Data"><a class="docs-heading-anchor" href="#Covariate-Data">Covariate Data</a><a id="Covariate-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Covariate-Data" title="Permalink"></a></h3><ol><li><strong>Matching dimensions</strong>: Covariate vector length must equal number of actors</li><li><strong>No excessive missing data</strong>: NaN values may cause issues</li><li><strong>Centering</strong>: Covariates are centered by default for numerical stability</li></ol><pre><code class="language-julia hljs"># Check for NaN values
+@assert !any(isnan, gender.values) &quot;Covariate has NaN values&quot;
+
+# Verify dimensions match
+@assert length(gender.values) == n_actors(friendship)</code></pre><h2 id="Complete-Data-Setup-Example"><a class="docs-heading-anchor" href="#Complete-Data-Setup-Example">Complete Data Setup Example</a><a id="Complete-Data-Setup-Example-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-Data-Setup-Example" title="Permalink"></a></h2><pre><code class="language-julia hljs">using Siena
+using Random
+
+Random.seed!(42)
+
+# Parameters
+n = 40
+n_waves_total = 3
+
+# === Generate synthetic data ===
+
+# Network waves with some structure
+function generate_network(n, density)
+    net = zeros(Int, n, n)
+    for i in 1:n, j in 1:n
+        if i != j &amp;&amp; rand() &lt; density
+            net[i, j] = 1
+        end
+    end
+    return net
+end
+
+waves = [generate_network(n, 0.1) for _ in 1:n_waves_total]
+
+# Behavior waves (ordinal 1-5)
+beh_waves = [rand(1:5, n) for _ in 1:n_waves_total]
+
+# Covariates
+gender_vals = rand(0:1, n)
+age_vals = randn(n) .* 2 .+ 16
+
+# === Assemble ===
+data = siena_data()
+add_nodeset!(data, NodeSet(n))
+add_dependent!(data, DependentNetwork(:net, waves))
+add_dependent!(data, DependentBehavior(:beh, beh_waves))
+add_covariate!(data, constant_covariate(:gender, gender_vals))
+add_covariate!(data, constant_covariate(:age, age_vals))
+
+println(data)
+println(&quot;Network density wave 1: &quot;, sum(waves[1]) / (n * (n-1)))
+println(&quot;Behavior range: &quot;, minimum(vcat(beh_waves...)), &quot;-&quot;, maximum(vcat(beh_waves...)))</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../getting_started/">« Getting Started</a><a class="docs-footer-nextpage" href="../effects/">Effects »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Monday 16 February 2026 17:55">Monday 16 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
