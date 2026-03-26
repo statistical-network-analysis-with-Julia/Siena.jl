@@ -1,5 +1,17 @@
 # Siena.jl
 
+
+[![Network Analysis](https://img.shields.io/badge/Network-Analysis-orange.svg)](https://github.com/statistical-network-analysis-with-Julia/Siena.jl)
+[![Build Status](https://github.com/statistical-network-analysis-with-Julia/Siena.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/statistical-network-analysis-with-Julia/Siena.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://statistical-network-analysis-with-Julia.github.io/Siena.jl/stable/)
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://statistical-network-analysis-with-Julia.github.io/Siena.jl/dev/)
+[![Julia](https://img.shields.io/badge/Julia-1.9+-purple.svg)](https://julialang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+<p align="center">
+  <img src="docs/src/assets/logo.svg" alt="Siena.jl icon" width="160">
+</p>
+
 A Julia implementation of SIENA (Simulation Investigation for Empirical Network Analysis) for analyzing longitudinal network data using Stochastic Actor-Oriented Models (SAOM).
 
 This is a port of [RSiena](https://github.com/stocnet/rsiena), the R implementation developed by Tom Snijders and colleagues.
@@ -18,14 +30,7 @@ The models assume that the network evolves through a continuous-time Markov chai
 
 ```julia
 using Pkg
-Pkg.add(path="path/to/Siena")
-```
-
-Or within the sna monorepo:
-
-```julia
-julia --project=Siena
-]instantiate
+Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Siena.jl")
 ```
 
 ## Quick Start
@@ -157,13 +162,23 @@ Estimation uses the Method of Moments with stochastic approximation (Robbins-Mon
 - **Simplified effects**: Core effects implemented; some advanced effects pending
 - **Algorithm**: Basic Robbins-Monro implementation; some advanced features pending
 
+## Documentation
+
+For more detailed documentation, see:
+
+- [Stable Documentation](https://statistical-network-analysis-with-Julia.github.io/Siena.jl/stable/)
+- [Development Documentation](https://statistical-network-analysis-with-Julia.github.io/Siena.jl/dev/)
+
 ## References
 
-- Snijders, T.A.B. (2017). Stochastic Actor-Oriented Models for Network Dynamics. *Annual Review of Statistics and Its Application*, 4, 343-363.
-- Ripley, R.M., Snijders, T.A.B., Boda, Z., Vörös, A., and Preciado, P. (2023). *Manual for RSiena*. University of Oxford.
-- [RSiena on CRAN](https://cran.r-project.org/package=RSiena)
-- [RSiena on GitHub](https://github.com/stocnet/rsiena)
+1. Snijders, T.A.B. (2017). Stochastic Actor-Oriented Models for Network Dynamics. *Annual Review of Statistics and Its Application*, 4, 343-363.
+
+2. Ripley, R.M., Snijders, T.A.B., Boda, Z., Vörös, A., and Preciado, P. (2023). *Manual for RSiena*. University of Oxford.
+
+3. Snijders, T.A.B. (2001). The Statistical Evaluation of Social Network Dynamics. *Sociological Methodology*, 31(1), 361-395.
+
+4. [RSiena on CRAN](https://cran.r-project.org/package=RSiena)
 
 ## License
 
-MIT License. See LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) for details.
