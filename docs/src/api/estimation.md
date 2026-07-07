@@ -10,6 +10,45 @@ This page documents the functions for model estimation, simulation, and goodness
 siena07
 ```
 
+## Parameters and Targets
+
+### build_param_map
+
+```@docs
+build_param_map
+ParameterMap
+```
+
+### parameter_names
+
+```@docs
+parameter_names
+```
+
+### objective_theta
+
+```@docs
+objective_theta
+```
+
+### basic_rate
+
+```@docs
+basic_rate
+```
+
+### compute_target_statistics
+
+```@docs
+compute_target_statistics
+```
+
+### compute_simulated_statistics
+
+```@docs
+compute_simulated_statistics
+```
+
 ## Simulation
 
 ### simulate_saom

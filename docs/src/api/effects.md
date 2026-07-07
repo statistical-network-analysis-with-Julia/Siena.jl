@@ -54,6 +54,12 @@ target_variable
 interaction_with
 ```
 
+### evaluate_actor
+
+```@docs
+evaluate_actor
+```
+
 ### compute_contribution
 
 ```@docs
@@ -64,6 +70,12 @@ compute_contribution
 
 ```@docs
 compute_statistic
+```
+
+### rate_score
+
+```@docs
+rate_score
 ```
 
 ## Structural Network Effects -- Basic

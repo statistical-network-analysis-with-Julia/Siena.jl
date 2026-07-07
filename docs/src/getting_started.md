@@ -220,19 +220,19 @@ Output:
 ```text
 SAOM Estimation Results
 =======================
-Converged: true
+Converged: true (max |t-ratio| = 0.193)
 Iterations: 1250
-
-Parameter Estimates:
---------------------
-outdegree           -2.1234 (0.1456) *
-recip                1.8901 (0.2345) *
-transTrip            0.3456 (0.0789) *
 
 Rate Parameters:
 ----------------
-Rate friendship period 1:   5.4321
-Rate friendship period 2:   6.7890
+Rate friendship (period 1)     5.4321 (0.9163)
+Rate friendship (period 2)     6.7890 (1.0963)
+
+Objective Function Parameters:
+------------------------------
+outdegree                     -2.1234 (0.1456) *
+recip                          1.8901 (0.2345) *
+transTrip                      0.3456 (0.0789) *
 ```
 
 ### Accessing Results Programmatically
@@ -352,10 +352,8 @@ result = siena07(data, effects; algorithm=alg)
 println(result)
 println("\nConfidence intervals:")
 ci = confint(result)
-for (i, entry) in enumerate(get_objective_effects(result.effects))
-    if !entry.fix
-        println("  $(entry.shortname): [$(round(ci[i,1], digits=3)), $(round(ci[i,2], digits=3))]")
-    end
+for (i, name) in enumerate(result.parameter_names)
+    println("  $name: [$(round(ci[i,1], digits=3)), $(round(ci[i,2], digits=3))]")
 end
 
 # === Goodness of Fit ===

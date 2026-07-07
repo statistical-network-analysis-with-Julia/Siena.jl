@@ -171,7 +171,7 @@ export TwoModeWithinEffect
 
 # Effects functions
 export effect_name, effect_type, target_variable, interaction_with
-export compute_contribution, compute_statistic
+export compute_contribution, compute_statistic, evaluate_actor, rate_score
 export get_effects, include_effects!, include_interaction!
 export get_included_effects, get_rate_effects, get_objective_effects
 export effects_table
@@ -183,13 +183,15 @@ export next_gain!, reset_gain!
 export EstimationPhase, PHASE_1, PHASE_2, PHASE_3
 
 # Simulation
-export simulate_saom, simulate_period!
+export simulate_saom, simulate_period!, snapshot
 export compute_objective, compute_network_choice_probs, compute_behavior_choice_probs
 export SimulationResult
+export ParameterMap, build_param_map, parameter_names, objective_theta, basic_rate
 
 # Estimation
 export siena07, SienaResult
 export coef, stderror, vcov, confint
+export compute_target_statistics, compute_simulated_statistics, default_basic_rate
 
 # Goodness of fit
 export AbstractGOFStatistic
@@ -301,7 +303,8 @@ This creates rate effects for each period and basic structural effects
 function get_effects(data::SienaData)
     effects = SienaEffects(collect(keys(data.dependents)))
 
-    # Add rate effects for each dependent variable and period
+    # Add rate effects for each dependent variable and period. The initial value is
+    # the basic rate itself (not its log), derived from the observed amount of change.
     for (name, dep) in data.dependents
         for p in 1:(data.n_waves - 1)
             rate_eff = BasicRateEffect(name, p)
@@ -309,7 +312,7 @@ function get_effects(data::SienaData)
                                name="Rate $name (period $p)",
                                shortname="rate$p",
                                include=true,
-                               initial_value=log(5.0))  # Default rate
+                               initial_value=default_basic_rate(data, name, p))
             add_effect!(effects, entry)
         end
 
@@ -379,7 +382,7 @@ end
 
 """
     include_effects!(effects::SienaEffects, variable::Symbol, effect_names::Vector{Symbol};
-                    initial_value::Float64=0.0, fix::Bool=false, test::Bool=false)
+                    initial_value=nothing, fix::Bool=false, test::Bool=false)
 
 Include effects in the model by name.
 Equivalent to R's includeEffects().
@@ -388,12 +391,14 @@ Equivalent to R's includeEffects().
 - `effects`: The effects object
 - `variable`: Name of the dependent variable
 - `effect_names`: Vector of effect short names to include
-- `initial_value`: Initial parameter value
+- `initial_value`: Initial parameter value (`nothing` keeps the entry's current value)
 - `fix`: Whether to fix the parameter
 - `test`: Whether to perform score test
 """
 function include_effects!(effects::SienaEffects, variable::Symbol, effect_names::Vector{Symbol};
-                         initial_value::Float64=0.0, fix::Bool=false, test::Bool=false)
+                         initial_value::Union{Nothing, Float64}=nothing,
+                         fix::Bool=false, test::Bool=false)
+    matched = Set{Symbol}()
     for entry in effects.effects
         # Use shortname (user-facing name) for matching
         shortname_sym = Symbol(entry.shortname)
@@ -401,11 +406,13 @@ function include_effects!(effects::SienaEffects, variable::Symbol, effect_names:
             entry.include = true
             entry.fix = fix
             entry.test = test
-            if initial_value != 0.0
-                entry.initial_value = initial_value
-            end
+            isnothing(initial_value) || (entry.initial_value = initial_value)
+            push!(matched, shortname_sym)
         end
     end
+    missed = setdiff(Set(effect_names), matched)
+    isempty(missed) ||
+        @warn "effects not found for variable $variable: $(collect(missed))"
     effects
 end
 

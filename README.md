@@ -5,7 +5,7 @@
 [![Build Status](https://github.com/statistical-network-analysis-with-Julia/Siena.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/statistical-network-analysis-with-Julia/Siena.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://statistical-network-analysis-with-Julia.github.io/Siena.jl/stable/)
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://statistical-network-analysis-with-Julia.github.io/Siena.jl/dev/)
-[![Julia](https://img.shields.io/badge/Julia-1.9+-purple.svg)](https://julialang.org/)
+[![Julia](https://img.shields.io/badge/Julia-1.12+-purple.svg)](https://julialang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 <p align="center">
@@ -43,14 +43,8 @@ data = siena_data()
 add_nodeset!(data, NodeSet(50))
 
 # Add dependent network (3 observation waves)
-# Each element is an adjacency matrix
-networks = [rand(0:1, 50, 50) for _ in 1:3]
-# Remove self-loops
-for net in networks
-    for i in 1:50
-        net[i, i] = 0
-    end
-end
+# Each element is an adjacency matrix (no self-loops)
+networks = [[Int(rand() < 0.08 && i != j) for i in 1:50, j in 1:50] for _ in 1:3]
 add_dependent!(data, DependentNetwork(:friendship, networks))
 
 # Add actor covariate
@@ -156,11 +150,38 @@ where $s_{ik}$ are network statistics and $\beta_k$ are parameters to estimate.
 
 Estimation uses the Method of Moments with stochastic approximation (Robbins-Monro algorithm).
 
+## Validation against RSiena
+
+The statistical core is validated against RSiena 4.x on RSiena's bundled `s50`
+dataset:
+
+- **Target statistics** (Method-of-Moments moment conditions) match RSiena's
+  `getTargets` to 6 decimals for 34 checked effects — rates, structural network
+  effects (`transTrip`, `cycle3`, `between`, `denseTriads`, degree effects with and
+  without `sqrt`, …), covariate effects (`egoX`/`altX`/`simX`/`sameX`/`egoXaltX`),
+  and behavior co-evolution effects (`linear`, `quad`, `avAlt`, `avSim`, `totSim`,
+  `indeg`, `outdeg`, `effFrom`).
+- **Estimates**: unconditional MoM estimation of the standard
+  `density + recip + transTrip` model on `s50` agrees with RSiena within Monte-Carlo
+  error (|z| ≤ 0.1 for every parameter, including the rate parameters and standard
+  errors of comparable magnitude).
+
+Every closed-form change statistic is verified in the test suite against a
+brute-force toggle of the actor evaluation function.
+
 ## Differences from RSiena
 
-- **Julia-native**: Uses Julia's type system and multiple dispatch
-- **Simplified effects**: Core effects implemented; some advanced effects pending
-- **Algorithm**: Basic Robbins-Monro implementation; some advanced features pending
+- **Unconditional Method of Moments only**: conditional estimation (conditioning on
+  observed amounts of change), Maximum Likelihood, and Bayesian estimation are not
+  implemented.
+- **Endowment/creation effects** are supported in simulation but not yet in
+  estimation; `include_interaction!` is not yet implemented.
+- **Derivative matrix** is estimated by finite differences with common random
+  numbers rather than RSiena's score-function method.
+- Missing data, composition change, and structural zeros/ones are not yet handled
+  in estimation.
+- A few rarely used effects use simplified definitions; these are flagged in their
+  docstrings (e.g. `balance`, `avAttHigher`/`avAttLower`).
 
 ## Documentation
 

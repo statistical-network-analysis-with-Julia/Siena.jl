@@ -1,9 +1,10 @@
 """
 Two-mode (bipartite) network effects for SAOM.
 
-Two-mode networks connect actors to events/affiliations rather than to other actors.
-These effects are used when the network is bipartite (e.g., actors attending events,
-students in classes, employees in projects).
+Two-mode networks connect actors (rows) to events/affiliations (columns) rather than
+to other actors. `evaluate_actor` gives the actor's evaluation component over its
+event ties; contributions use closed forms where exact and the generic toggle
+fallback otherwise.
 """
 
 #==============================================================================#
@@ -17,6 +18,16 @@ Abstract type for two-mode network effects.
 """
 abstract type TwoModeEffect <: NetworkEffect end
 
+# Number of shared events between actors i and o, optionally excluding one event.
+function _shared_events(net::Matrix{Int}, i::Int, o::Int; exclude::Int=0)
+    shared = 0
+    for e in 1:size(net, 2)
+        e == exclude && continue
+        shared += net[i, e] * net[o, e]
+    end
+    return shared
+end
+
 #==============================================================================#
 # Basic Two-Mode Effects
 #==============================================================================#
@@ -24,7 +35,7 @@ abstract type TwoModeEffect <: NetworkEffect end
 """
     TwoModeOutdegreeEffect <: TwoModeEffect
 
-Outdegree effect for two-mode networks (number of events attended).
+Outdegree (number of events attended): ``s_i = x_{i+}``.
 """
 struct TwoModeOutdegreeEffect <: TwoModeEffect
     variable::Symbol
@@ -34,15 +45,20 @@ effect_name(::TwoModeOutdegreeEffect) = :outdegree2
 effect_type(::TwoModeOutdegreeEffect) = :eval
 target_variable(e::TwoModeOutdegreeEffect) = e.variable
 
+function evaluate_actor(e::TwoModeOutdegreeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    return Float64(_row_sum(state.networks[e.variable], actor))
+end
+
 function compute_contribution(e::TwoModeOutdegreeEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
-    return 1.0  # Contribution is always 1 for adding a tie
+    return 1.0
 end
 
 """
     TwoModeIndegreeEffect <: TwoModeEffect
 
-Indegree effect for two-mode networks (popularity of events).
+Event popularity: ``s_i = \\sum_e x_{ie} f(x_{+e})`` with ``f`` identity or sqrt.
 """
 struct TwoModeIndegreeEffect <: TwoModeEffect
     variable::Symbol
@@ -56,16 +72,23 @@ effect_name(e::TwoModeIndegreeEffect) = e.sqrt ? :indegreeSqrt2 : :indegree2
 effect_type(::TwoModeIndegreeEffect) = :eval
 target_variable(e::TwoModeIndegreeEffect) = e.variable
 
+function evaluate_actor(e::TwoModeIndegreeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    total = 0.0
+    for ev in 1:size(net, 2)
+        net[actor, ev] == 0 && continue
+        indeg = Float64(_col_sum(net, ev))
+        total += e.sqrt ? sqrt(indeg) : indeg
+    end
+    return total
+end
+
 function compute_contribution(e::TwoModeIndegreeEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
     net = state.networks[e.variable]
-    # Count how many actors are connected to this event (excluding current actor)
-    indeg = sum(net[:, event]) - net[actor, event]
-    if e.sqrt
-        return sqrt(indeg + 1) - sqrt(indeg)
-    else
-        return Float64(indeg)
-    end
+    d = Float64(_col_sum(net, event) - net[actor, event] + 1)  # indegree with the tie
+    return e.sqrt ? sqrt(d) : d
 end
 
 #==============================================================================#
@@ -75,8 +98,8 @@ end
 """
     FourCyclesEffect <: TwoModeEffect
 
-Four-cycles effect: tendency for actors who share events to share more events.
-This is the two-mode analogue of transitivity.
+Four-cycles: ``s_i = \\sum_{o \\ne i} \\binom{s_{io}}{2}`` where ``s_{io}`` is the
+number of shared events of actors ``i`` and ``o``. Two-mode analogue of transitivity.
 """
 struct FourCyclesEffect <: TwoModeEffect
     variable::Symbol
@@ -86,27 +109,36 @@ effect_name(::FourCyclesEffect) = :fourCycles
 effect_type(::FourCyclesEffect) = :eval
 target_variable(e::FourCyclesEffect) = e.variable
 
+function evaluate_actor(e::FourCyclesEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    total = 0.0
+    for o in 1:size(net, 1)
+        o == actor && continue
+        s = _shared_events(net, actor, o)
+        total += s * (s - 1) / 2
+    end
+    return total
+end
+
 function compute_contribution(e::FourCyclesEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
     net = state.networks[e.variable]
-    n_actors = size(net, 1)
-
-    # Count shared events with other actors who also attend this event
-    count = 0
-    for other in 1:n_actors
-        if other != actor && net[other, event] == 1
-            # Count shared events between actor and other
-            shared = sum(net[actor, :] .* net[other, :])
-            count += shared
-        end
+    # Adding the tie i-event turns each pre-existing shared event with a co-attendee
+    # into a new four-cycle: binom(s+1, 2) - binom(s, 2) = s.
+    total = 0.0
+    for o in 1:size(net, 1)
+        (o == actor || net[o, event] == 0) && continue
+        total += _shared_events(net, actor, o; exclude=event)
     end
-    return Float64(count)
+    return total
 end
 
 """
     SharedEventsEffect <: TwoModeEffect
 
-Number of events shared with each alter connected to same events.
+Total shared events with other actors: ``s_i = \\sum_{o \\ne i} f(s_{io})`` with
+``f`` identity or sqrt.
 """
 struct SharedEventsEffect <: TwoModeEffect
     variable::Symbol
@@ -120,21 +152,26 @@ effect_name(e::SharedEventsEffect) = e.sqrt ? :sharedEventsSqrt : :sharedEvents
 effect_type(::SharedEventsEffect) = :eval
 target_variable(e::SharedEventsEffect) = e.variable
 
+function evaluate_actor(e::SharedEventsEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    total = 0.0
+    for o in 1:size(net, 1)
+        o == actor && continue
+        s = _shared_events(net, actor, o)
+        total += e.sqrt ? sqrt(Float64(s)) : Float64(s)
+    end
+    return total
+end
+
 function compute_contribution(e::SharedEventsEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
     net = state.networks[e.variable]
-    n_actors = size(net, 1)
-
     total = 0.0
-    for other in 1:n_actors
-        if other != actor && net[other, event] == 1
-            shared = sum(net[actor, :] .* net[other, :])
-            if e.sqrt
-                total += sqrt(shared + 1) - sqrt(shared)
-            else
-                total += shared
-            end
-        end
+    for o in 1:size(net, 1)
+        (o == actor || net[o, event] == 0) && continue
+        s = _shared_events(net, actor, o; exclude=event)
+        total += e.sqrt ? sqrt(Float64(s + 1)) - sqrt(Float64(s)) : 1.0
     end
     return total
 end
@@ -142,7 +179,8 @@ end
 """
     GWESPTwoModeEffect <: TwoModeEffect
 
-Geometrically weighted shared partners for two-mode networks.
+Geometrically weighted shared events:
+``s_i = \\sum_{o \\ne i} (1 - (1 - e^{-\\alpha})^{s_{io}})``.
 """
 struct GWESPTwoModeEffect <: TwoModeEffect
     variable::Symbol
@@ -156,20 +194,14 @@ effect_name(::GWESPTwoModeEffect) = :gwesp2
 effect_type(::GWESPTwoModeEffect) = :eval
 target_variable(e::GWESPTwoModeEffect) = e.variable
 
-function compute_contribution(e::GWESPTwoModeEffect, state::NetworkState,
-                             data::SienaData, actor::Int, event::Int)
+function evaluate_actor(e::GWESPTwoModeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     net = state.networks[e.variable]
-    n_actors = size(net, 1)
-
     total = 0.0
-    for other in 1:n_actors
-        if other != actor && net[other, event] == 1
-            shared = sum(net[actor, :] .* net[other, :])
-            if shared > 0
-                # GWESP-style weighting
-                total += 1 - (1 - exp(-e.α))^shared
-            end
-        end
+    for o in 1:size(net, 1)
+        o == actor && continue
+        s = _shared_events(net, actor, o)
+        s > 0 && (total += 1.0 - (1.0 - exp(-e.α))^s)
     end
     return total
 end
@@ -181,7 +213,7 @@ end
 """
     TwoModeEgoEffect <: TwoModeEffect
 
-Effect of actor covariate on two-mode tie formation.
+Actor covariate effect on event attendance: ``s_i = v_i x_{i+}``.
 """
 struct TwoModeEgoEffect <: TwoModeEffect
     variable::Symbol
@@ -193,24 +225,23 @@ effect_type(::TwoModeEgoEffect) = :eval
 target_variable(e::TwoModeEgoEffect) = e.variable
 interaction_with(e::TwoModeEgoEffect) = e.covariate
 
+function evaluate_actor(e::TwoModeEgoEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    v = _get_covariate_value(data.covariates[e.covariate], actor, state.period)
+    return v * _row_sum(net, actor)
+end
+
 function compute_contribution(e::TwoModeEgoEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
-    cov = data.covariates[e.covariate]
-    cov_val = if cov isa ConstantCovariate
-        cov.values[actor]
-    elseif cov isa VaryingCovariate
-        cov.values[min(state.period, length(cov.values))][actor]
-    else
-        0.0
-    end
-    return cov_val
+    return _get_covariate_value(data.covariates[e.covariate], actor, state.period)
 end
 
 """
     TwoModeEventEffect <: TwoModeEffect
 
-Effect of event attribute on two-mode tie formation.
-Uses a dyadic covariate where rows are actors and columns are events.
+Event attribute effect: ``s_i = \\sum_e x_{ie} w_{ie}`` using a dyadic covariate
+whose rows are actors and columns are events.
 """
 struct TwoModeEventEffect <: TwoModeEffect
     variable::Symbol
@@ -222,24 +253,29 @@ effect_type(::TwoModeEventEffect) = :eval
 target_variable(e::TwoModeEventEffect) = e.variable
 interaction_with(e::TwoModeEventEffect) = e.event_covariate
 
+function evaluate_actor(e::TwoModeEventEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    cov = data.covariates[e.event_covariate]
+    total = 0.0
+    for ev in 1:size(net, 2)
+        net[actor, ev] == 0 && continue
+        total += _get_dyad_covariate_value(cov, actor, ev, state.period)
+    end
+    return total
+end
+
 function compute_contribution(e::TwoModeEventEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
-    dcov = data.covariates[e.event_covariate]
-    if dcov isa ConstantDyadCovariate
-        return dcov.values[actor, event]
-    elseif dcov isa VaryingDyadCovariate
-        period = min(state.period, length(dcov.values))
-        return dcov.values[period][actor, event]
-    else
-        return 0.0
-    end
+    return _get_dyad_covariate_value(data.covariates[e.event_covariate], actor, event,
+                                     state.period)
 end
 
 """
     TwoModeSameEffect <: TwoModeEffect
 
-Same covariate effect for two-mode networks.
-Actors with same covariate value tend to share events with similar others.
+Attendance with same-covariate others:
+``s_i = \\sum_e x_{ie} \\#\\{o \\ne i : x_{oe} = 1, |v_i - v_o| < 0.5\\}``.
 """
 struct TwoModeSameEffect <: TwoModeEffect
     variable::Symbol
@@ -251,34 +287,34 @@ effect_type(::TwoModeSameEffect) = :eval
 target_variable(e::TwoModeSameEffect) = e.variable
 interaction_with(e::TwoModeSameEffect) = e.covariate
 
+function evaluate_actor(e::TwoModeSameEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    cov = data.covariates[e.covariate]
+    ego_val = _get_covariate_value(cov, actor, state.period)
+    total = 0
+    for ev in 1:size(net, 2)
+        net[actor, ev] == 0 && continue
+        for o in 1:size(net, 1)
+            (o == actor || net[o, ev] == 0) && continue
+            if abs(ego_val - _get_covariate_value(cov, o, state.period)) < 0.5
+                total += 1
+            end
+        end
+    end
+    return Float64(total)
+end
+
 function compute_contribution(e::TwoModeSameEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
     net = state.networks[e.variable]
     cov = data.covariates[e.covariate]
-    n_actors = size(net, 1)
-
-    ego_val = if cov isa ConstantCovariate
-        cov.values[actor]
-    elseif cov isa VaryingCovariate
-        cov.values[min(state.period, length(cov.values))][actor]
-    else
-        0.0
-    end
-
-    # Count alters at this event with same covariate value
+    ego_val = _get_covariate_value(cov, actor, state.period)
     count = 0
-    for other in 1:n_actors
-        if other != actor && net[other, event] == 1
-            other_val = if cov isa ConstantCovariate
-                cov.values[other]
-            elseif cov isa VaryingCovariate
-                cov.values[min(state.period, length(cov.values))][other]
-            else
-                0.0
-            end
-            if abs(ego_val - other_val) < 0.5  # Same value
-                count += 1
-            end
+    for o in 1:size(net, 1)
+        (o == actor || net[o, event] == 0) && continue
+        if abs(ego_val - _get_covariate_value(cov, o, state.period)) < 0.5
+            count += 1
         end
     end
     return Float64(count)
@@ -287,7 +323,8 @@ end
 """
     TwoModeSimilarityEffect <: TwoModeEffect
 
-Similarity effect for two-mode networks.
+Covariate similarity with co-attendees:
+``s_i = \\sum_e x_{ie} \\sum_{o \\ne i} x_{oe} \\, \\text{sim}_{io}``.
 """
 struct TwoModeSimilarityEffect <: TwoModeEffect
     variable::Symbol
@@ -299,47 +336,37 @@ effect_type(::TwoModeSimilarityEffect) = :eval
 target_variable(e::TwoModeSimilarityEffect) = e.variable
 interaction_with(e::TwoModeSimilarityEffect) = e.covariate
 
+function _twomode_similarity(cov::AbstractCovariate, i::Int, o::Int, wave::Int)
+    r = max(_get_covariate_range(cov), 1e-10)
+    return 1.0 - abs(_get_covariate_value(cov, i, wave) -
+                     _get_covariate_value(cov, o, wave)) / r
+end
+
+function evaluate_actor(e::TwoModeSimilarityEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    cov = data.covariates[e.covariate]
+    total = 0.0
+    for ev in 1:size(net, 2)
+        net[actor, ev] == 0 && continue
+        for o in 1:size(net, 1)
+            (o == actor || net[o, ev] == 0) && continue
+            total += _twomode_similarity(cov, actor, o, state.period)
+        end
+    end
+    return total
+end
+
 function compute_contribution(e::TwoModeSimilarityEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
     net = state.networks[e.variable]
     cov = data.covariates[e.covariate]
-    n_actors = size(net, 1)
-
-    # Get covariate range for normalization
-    cov_range = if cov isa ConstantCovariate
-        maximum(cov.values) - minimum(cov.values)
-    elseif cov isa VaryingCovariate
-        all_vals = vcat(cov.values...)
-        maximum(all_vals) - minimum(all_vals)
-    else
-        1.0
+    total = 0.0
+    for o in 1:size(net, 1)
+        (o == actor || net[o, event] == 0) && continue
+        total += _twomode_similarity(cov, actor, o, state.period)
     end
-    cov_range = max(cov_range, 1e-10)  # Avoid division by zero
-
-    ego_val = if cov isa ConstantCovariate
-        cov.values[actor]
-    elseif cov isa VaryingCovariate
-        cov.values[min(state.period, length(cov.values))][actor]
-    else
-        0.0
-    end
-
-    # Sum similarity with alters at this event
-    total_sim = 0.0
-    for other in 1:n_actors
-        if other != actor && net[other, event] == 1
-            other_val = if cov isa ConstantCovariate
-                cov.values[other]
-            elseif cov isa VaryingCovariate
-                cov.values[min(state.period, length(cov.values))][other]
-            else
-                0.0
-            end
-            sim = 1.0 - abs(ego_val - other_val) / cov_range
-            total_sim += sim
-        end
-    end
-    return total_sim
+    return total
 end
 
 #==============================================================================#
@@ -349,7 +376,7 @@ end
 """
     TwoModeActivityEffect <: TwoModeEffect
 
-Activity effect: outdegree of alter at the event.
+Co-attendee activity: ``s_i = \\sum_e x_{ie} \\sum_{o \\ne i} x_{oe} f(x_{o+})``.
 """
 struct TwoModeActivityEffect <: TwoModeEffect
     variable::Symbol
@@ -363,21 +390,29 @@ effect_name(e::TwoModeActivityEffect) = e.sqrt ? :activitySqrt2 : :activity2
 effect_type(::TwoModeActivityEffect) = :eval
 target_variable(e::TwoModeActivityEffect) = e.variable
 
+function evaluate_actor(e::TwoModeActivityEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    total = 0.0
+    for ev in 1:size(net, 2)
+        net[actor, ev] == 0 && continue
+        for o in 1:size(net, 1)
+            (o == actor || net[o, ev] == 0) && continue
+            outdeg = Float64(_row_sum(net, o))
+            total += e.sqrt ? sqrt(outdeg) : outdeg
+        end
+    end
+    return total
+end
+
 function compute_contribution(e::TwoModeActivityEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
     net = state.networks[e.variable]
-    n_actors = size(net, 1)
-
     total = 0.0
-    for other in 1:n_actors
-        if other != actor && net[other, event] == 1
-            outdeg = sum(net[other, :])
-            if e.sqrt
-                total += sqrt(outdeg)
-            else
-                total += outdeg
-            end
-        end
+    for o in 1:size(net, 1)
+        (o == actor || net[o, event] == 0) && continue
+        outdeg = Float64(_row_sum(net, o))
+        total += e.sqrt ? sqrt(outdeg) : outdeg
     end
     return total
 end
@@ -385,7 +420,8 @@ end
 """
     TwoModePopularityAltEffect <: TwoModeEffect
 
-Actors with high outdegree tend to go to popular events.
+Actors with high outdegree attend popular events:
+``s_i = x_{i+} \\sum_e x_{ie} (x_{+e} - 1)``.
 """
 struct TwoModePopularityAltEffect <: TwoModeEffect
     variable::Symbol
@@ -395,13 +431,16 @@ effect_name(::TwoModePopularityAltEffect) = :popAlt2
 effect_type(::TwoModePopularityAltEffect) = :eval
 target_variable(e::TwoModePopularityAltEffect) = e.variable
 
-function compute_contribution(e::TwoModePopularityAltEffect, state::NetworkState,
-                             data::SienaData, actor::Int, event::Int)
+function evaluate_actor(e::TwoModePopularityAltEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     net = state.networks[e.variable]
-    # Product of ego outdegree and event indegree
-    ego_outdeg = sum(net[actor, :])
-    event_indeg = sum(net[:, event]) - net[actor, event]
-    return Float64(ego_outdeg * event_indeg)
+    outdeg = _row_sum(net, actor)
+    total = 0
+    for ev in 1:size(net, 2)
+        net[actor, ev] == 0 && continue
+        total += _col_sum(net, ev) - 1
+    end
+    return Float64(outdeg * total)
 end
 
 #==============================================================================#
@@ -411,7 +450,8 @@ end
 """
     TwoModeTransitiveClosureEffect <: TwoModeEffect
 
-Tendency to form ties that close four-cycles.
+Closure of four-paths: ``s_i = \\sum_{o \\ne i} s_{io} (s_{io} - 1)`` (twice the
+four-cycle count).
 """
 struct TwoModeTransitiveClosureEffect <: TwoModeEffect
     variable::Symbol
@@ -421,29 +461,23 @@ effect_name(::TwoModeTransitiveClosureEffect) = :transClosure2
 effect_type(::TwoModeTransitiveClosureEffect) = :eval
 target_variable(e::TwoModeTransitiveClosureEffect) = e.variable
 
-function compute_contribution(e::TwoModeTransitiveClosureEffect, state::NetworkState,
-                             data::SienaData, actor::Int, event::Int)
+function evaluate_actor(e::TwoModeTransitiveClosureEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     net = state.networks[e.variable]
-    n_actors, n_events = size(net)
-
-    # For each event ego attends, count if alters at that event also attend target event
-    count = 0
-    for e1 in 1:n_events
-        if e1 != event && net[actor, e1] == 1
-            for other in 1:n_actors
-                if other != actor && net[other, e1] == 1 && net[other, event] == 1
-                    count += 1
-                end
-            end
-        end
+    total = 0
+    for o in 1:size(net, 1)
+        o == actor && continue
+        s = _shared_events(net, actor, o)
+        total += s * (s - 1)
     end
-    return Float64(count)
+    return Float64(total)
 end
 
 """
     TwoModeActorAssortativityEffect <: TwoModeEffect
 
-Tendency for actors with similar outdegree to share events.
+Outdegree assortativity with co-attendees:
+``s_i = \\sum_e x_{ie} \\sum_{o \\ne i} x_{oe} \\, x_{i+} x_{o+}``.
 """
 struct TwoModeActorAssortativityEffect <: TwoModeEffect
     variable::Symbol
@@ -453,22 +487,19 @@ effect_name(::TwoModeActorAssortativityEffect) = :actAssort2
 effect_type(::TwoModeActorAssortativityEffect) = :eval
 target_variable(e::TwoModeActorAssortativityEffect) = e.variable
 
-function compute_contribution(e::TwoModeActorAssortativityEffect, state::NetworkState,
-                             data::SienaData, actor::Int, event::Int)
+function evaluate_actor(e::TwoModeActorAssortativityEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     net = state.networks[e.variable]
-    n_actors = size(net, 1)
-
-    ego_outdeg = sum(net[actor, :])
-
-    # Sum of product of ego outdegree with outdegree of alters at this event
-    total = 0.0
-    for other in 1:n_actors
-        if other != actor && net[other, event] == 1
-            other_outdeg = sum(net[other, :])
-            total += ego_outdeg * other_outdeg
+    ego_outdeg = _row_sum(net, actor)
+    total = 0
+    for ev in 1:size(net, 2)
+        net[actor, ev] == 0 && continue
+        for o in 1:size(net, 1)
+            (o == actor || net[o, ev] == 0) && continue
+            total += ego_outdeg * _row_sum(net, o)
         end
     end
-    return total
+    return Float64(total)
 end
 
 #==============================================================================#
@@ -478,7 +509,10 @@ end
 """
     TwoModeWithinEffect <: TwoModeEffect
 
-Tendency to form ties within same setting/group (for grouped events).
+Attendance of events within the actor's own setting:
+``s_i = \\sum_e x_{ie} I(|v_i - w_{ie}| < 0.5)`` where ``v`` is the actor setting
+covariate and ``w`` is a dyadic covariate whose ``(i, e)`` entry gives the setting of
+event ``e`` (typically constant across rows).
 """
 struct TwoModeWithinEffect <: TwoModeEffect
     variable::Symbol
@@ -491,27 +525,25 @@ effect_type(::TwoModeWithinEffect) = :eval
 target_variable(e::TwoModeWithinEffect) = e.variable
 interaction_with(e::TwoModeWithinEffect) = e.setting
 
+function _within_setting(e::TwoModeWithinEffect, data::SienaData, actor::Int,
+                         event::Int, wave::Int)
+    v = _get_covariate_value(data.covariates[e.setting], actor, wave)
+    w = _get_dyad_covariate_value(data.covariates[e.event_setting], actor, event, wave)
+    return abs(v - w) < 0.5 ? 1.0 : 0.0
+end
+
+function evaluate_actor(e::TwoModeWithinEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    net = state.networks[e.variable]
+    total = 0.0
+    for ev in 1:size(net, 2)
+        net[actor, ev] == 0 && continue
+        total += _within_setting(e, data, actor, ev, state.period)
+    end
+    return total
+end
+
 function compute_contribution(e::TwoModeWithinEffect, state::NetworkState,
                              data::SienaData, actor::Int, event::Int)
-    actor_cov = data.covariates[e.setting]
-    event_cov = data.covariates[e.event_setting]
-
-    actor_setting = if actor_cov isa ConstantCovariate
-        actor_cov.values[actor]
-    elseif actor_cov isa VaryingCovariate
-        actor_cov.values[min(state.period, length(actor_cov.values))][actor]
-    else
-        0.0
-    end
-
-    event_setting = if event_cov isa ConstantDyadCovariate
-        # Assuming event setting is stored in a way that can be retrieved
-        # This is simplified - actual implementation would depend on data structure
-        0.0
-    else
-        0.0
-    end
-
-    # Return 1 if same setting, 0 otherwise
-    return abs(actor_setting - event_setting) < 0.5 ? 1.0 : 0.0
+    return _within_setting(e, data, actor, event, state.period)
 end

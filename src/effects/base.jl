@@ -73,19 +73,80 @@ interaction_with(::AbstractEffect) = nothing
 #==============================================================================#
 
 """
+    evaluate_actor(effect::AbstractEffect, state::NetworkState, data::SienaData, actor::Int)
+
+Actor `actor`'s evaluation-function component ``s_{ki}(x)`` for this effect (RSiena's
+``s_{ki}``). This is the primitive from which everything else derives:
+
+- `compute_statistic` sums it over all actors (the Method-of-Moments target statistic);
+- the generic `compute_contribution` fallback differences it across a tie toggle
+  (networks) or a behavior step (behavior).
+
+Every concrete effect must implement this method.
+"""
+function evaluate_actor end
+
+"""
     compute_contribution(effect::AbstractEffect, state::NetworkState,
                         data::SienaData, actor::Int, alter::Int)
 
-Compute the contribution of this effect for a potential tie change from actor to alter.
+Change statistic of the effect for actor `actor`.
+
+For network effects this is the **add-direction** change
+``s_{ki}(x \\text{ with tie } i \\to j) - s_{ki}(x \\text{ without tie})``, independent
+of whether the tie currently exists (the simulation applies the sign flip for
+deletions). For behavior effects, `alter` encodes the direction (±1) and the value is
+``s_{ki}(z_i + d) - s_{ki}(z_i)``.
+
+A generic fallback based on [`evaluate_actor`](@ref) is provided; effects may add a
+closed-form method for speed (verified against the fallback in the test suite).
 """
 function compute_contribution end
 
 """
     compute_statistic(effect::AbstractEffect, state::NetworkState, data::SienaData)
 
-Compute the network statistic associated with this effect.
+Compute the network statistic associated with this effect:
+``s_k(x) = \\sum_i s_{ki}(x)`` (see [`evaluate_actor`](@ref)).
 """
-function compute_statistic end
+function compute_statistic(e::AbstractEffect, state::NetworkState, data::SienaData)
+    s = 0.0
+    for i in 1:_n_focal_actors(e, state)
+        s += evaluate_actor(e, state, data, i)
+    end
+    return s
+end
+
+_n_focal_actors(e::AbstractEffect, state::NetworkState) =
+    e isa BehaviorEffect ? length(state.behaviors[target_variable(e)]) :
+                           size(state.networks[target_variable(e)], 1)
+
+# Generic fallback: brute-force toggle. Correct by construction (add-direction,
+# state-independent) but O(cost of evaluate_actor) per call; hot effects should
+# provide a closed form.
+function compute_contribution(e::NetworkEffect, state::NetworkState,
+                              data::SienaData, actor::Int, alter::Int)
+    net = state.networks[target_variable(e)]
+    old = net[actor, alter]
+    net[actor, alter] = 1
+    with_tie = evaluate_actor(e, state, data, actor)
+    net[actor, alter] = 0
+    without_tie = evaluate_actor(e, state, data, actor)
+    net[actor, alter] = old
+    return with_tie - without_tie
+end
+
+function compute_contribution(e::BehaviorEffect, state::NetworkState,
+                              data::SienaData, actor::Int, direction::Int)
+    direction == 0 && return 0.0
+    beh = state.behaviors[target_variable(e)]
+    old = beh[actor]
+    current = evaluate_actor(e, state, data, actor)
+    beh[actor] = old + direction
+    changed = evaluate_actor(e, state, data, actor)
+    beh[actor] = old
+    return changed - current
+end
 
 #==============================================================================#
 # Effect Entry (for effects table)

@@ -1,6 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-Siena = "b1c2d3e4-f5a6-7890-bcde-f12345678901"
+Siena = "23c1be1b-04c0-4290-87a8-83c04253ada6"
 
 [sources]
 Siena = {path = ".."}

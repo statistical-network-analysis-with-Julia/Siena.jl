@@ -42,7 +42,8 @@ end
 """
     TriadCensus <: AbstractGOFStatistic
 
-Triad census statistic.
+Full 16-type Davis–Leinhardt triad census (003, 012, 102, 021D, 021U, 021C, 111D,
+111U, 030T, 030C, 201, 120D, 120U, 120C, 210, 300).
 """
 struct TriadCensus <: AbstractGOFStatistic
     variable::Symbol
@@ -70,109 +71,151 @@ struct BehaviorDistribution <: AbstractGOFStatistic
     variable::Symbol
 end
 
+# Fix the degree levels of a statistic so that observed and simulated counts are
+# computed on the same support.
+_with_levels(stat::IndegreeDistribution, levls::Vector{Int}) =
+    IndegreeDistribution(stat.variable; levls=levls)
+_with_levels(stat::OutdegreeDistribution, levls::Vector{Int}) =
+    OutdegreeDistribution(stat.variable; levls=levls)
+_with_levels(stat::AbstractGOFStatistic, ::Vector) = stat
+
 #==============================================================================#
 # Statistic Computation
 #==============================================================================#
+
+function _degree_counts(degrees::Vector{Int}, levls::Vector{Int})
+    counts = zeros(Int, length(levls))
+    for d in degrees
+        idx = findfirst(==(d), levls)
+        isnothing(idx) || (counts[idx] += 1)
+    end
+    return counts
+end
 
 """
     compute_gof_statistic(stat::IndegreeDistribution, state::NetworkState,
                          data::SienaData)
 
-Compute indegree distribution.
+Compute indegree distribution. Returns `(levels, counts)`.
 """
 function compute_gof_statistic(stat::IndegreeDistribution, state::NetworkState,
                               data::SienaData)
     net = state.networks[stat.variable]
     n = size(net, 1)
-
-    indegrees = [sum(net[:, j]) for j in 1:n]
-    max_deg = maximum(indegrees)
-
-    levls = isnothing(stat.levls) ? collect(0:max_deg) : stat.levls
-    counts = zeros(Int, length(levls))
-
-    for d in indegrees
-        idx = findfirst(==(d), levls)
-        if !isnothing(idx)
-            counts[idx] += 1
-        end
-    end
-
-    return levls, counts
+    indegrees = [_col_sum(net, j) for j in 1:n]
+    levls = isnothing(stat.levls) ? collect(0:maximum(indegrees)) : stat.levls
+    return levls, _degree_counts(indegrees, levls)
 end
 
 """
     compute_gof_statistic(stat::OutdegreeDistribution, state::NetworkState,
                          data::SienaData)
 
-Compute outdegree distribution.
+Compute outdegree distribution. Returns `(levels, counts)`.
 """
 function compute_gof_statistic(stat::OutdegreeDistribution, state::NetworkState,
                               data::SienaData)
     net = state.networks[stat.variable]
     n = size(net, 1)
+    outdegrees = [_row_sum(net, i) for i in 1:n]
+    levls = isnothing(stat.levls) ? collect(0:maximum(outdegrees)) : stat.levls
+    return levls, _degree_counts(outdegrees, levls)
+end
 
-    outdegrees = [sum(net[i, :]) for i in 1:n]
-    max_deg = maximum(outdegrees)
+const TRIAD_LABELS = ["003", "012", "102", "021D", "021U", "021C", "111D", "111U",
+                      "030T", "030C", "201", "120D", "120U", "120C", "210", "300"]
 
-    levls = isnothing(stat.levls) ? collect(0:max_deg) : stat.levls
-    counts = zeros(Int, length(levls))
+# Classify the directed triad {a, b, c} into one of the 16 Davis–Leinhardt M-A-N
+# classes (1-based index into TRIAD_LABELS).
+function _triad_type(net::Matrix{Int}, a::Int, b::Int, c::Int)
+    mutual = 0
+    asym_arcs = Tuple{Int, Int}[]
+    mutual_pair = (0, 0)
 
-    for d in outdegrees
-        idx = findfirst(==(d), levls)
-        if !isnothing(idx)
-            counts[idx] += 1
+    for (i, j) in ((a, b), (a, c), (b, c))
+        y_ij = net[i, j] == 1
+        y_ji = net[j, i] == 1
+        if y_ij && y_ji
+            mutual += 1
+            mutual_pair = (i, j)
+        elseif y_ij
+            push!(asym_arcs, (i, j))
+        elseif y_ji
+            push!(asym_arcs, (j, i))
         end
     end
 
-    return levls, counts
+    A = length(asym_arcs)
+
+    if mutual == 3
+        return 16                     # 300
+    elseif mutual == 2
+        return A == 1 ? 15 : 11       # 210 : 201
+    elseif mutual == 1
+        if A == 0
+            return 3                  # 102
+        elseif A == 1
+            # 111D: A<->B<-C (arc points into the mutual pair)
+            # 111U: A<->B->C (arc points out of the mutual pair)
+            _, d = asym_arcs[1]
+            return (d == mutual_pair[1] || d == mutual_pair[2]) ? 7 : 8
+        else  # A == 2
+            s1, d1 = asym_arcs[1]
+            s2, d2 = asym_arcs[2]
+            s1 == s2 && return 12     # 120D (common source)
+            d1 == d2 && return 13     # 120U (common sink)
+            return 14                 # 120C (chain)
+        end
+    else  # mutual == 0
+        if A == 0
+            return 1                  # 003
+        elseif A == 1
+            return 2                  # 012
+        elseif A == 2
+            s1, d1 = asym_arcs[1]
+            s2, d2 = asym_arcs[2]
+            s1 == s2 && return 4      # 021D (out-star)
+            d1 == d2 && return 5      # 021U (in-star)
+            return 6                  # 021C (path)
+        else  # A == 3
+            # Cyclic if every vertex is the source of exactly one arc
+            sources = (asym_arcs[1][1], asym_arcs[2][1], asym_arcs[3][1])
+            return allunique(sources) ? 10 : 9   # 030C : 030T
+        end
+    end
 end
 
 """
-    compute_gof_statistic(stat::TriadCensus, state::NetworkState,
-                         data::SienaData)
+    compute_gof_statistic(stat::TriadCensus, state::NetworkState, data::SienaData)
 
-Compute triad census (16 triad types for directed networks).
+Compute the full 16-type Davis–Leinhardt triad census. Returns `(labels, counts)`.
 """
 function compute_gof_statistic(stat::TriadCensus, state::NetworkState,
                               data::SienaData)
     net = state.networks[stat.variable]
     n = size(net, 1)
-
-    # Simplified: count mutual, asymmetric, and null dyads
-    mutual = 0
-    asymm = 0
-    null = 0
-
-    for i in 1:(n-1)
-        for j in (i+1):n
-            if net[i, j] == 1 && net[j, i] == 1
-                mutual += 1
-            elseif net[i, j] == 1 || net[j, i] == 1
-                asymm += 1
-            else
-                null += 1
-            end
-        end
+    counts = zeros(Int, 16)
+    for i in 1:n, j in (i+1):n, k in (j+1):n
+        counts[_triad_type(net, i, j, k)] += 1
     end
-
-    return [:mutual, :asymmetric, :null], [mutual, asymm, null]
+    return copy(TRIAD_LABELS), counts
 end
 
 """
     compute_gof_statistic(stat::GeodesicDistribution, state::NetworkState,
                          data::SienaData)
 
-Compute geodesic (shortest path) distribution.
+Compute geodesic (shortest path) distribution. Returns `(labels, counts)` where the
+labels are the distances 1..max_dist plus "unreachable" (which includes distances
+beyond max_dist).
 """
 function compute_gof_statistic(stat::GeodesicDistribution, state::NetworkState,
                               data::SienaData)
     net = state.networks[stat.variable]
     n = size(net, 1)
 
-    # Simple BFS for shortest paths
-    dist_counts = zeros(Int, stat.max_dist + 1)  # 0 to max_dist
-    unreachable = 0
+    dist_counts = zeros(Int, stat.max_dist)
+    beyond = 0
 
     for i in 1:n
         # BFS from node i
@@ -185,27 +228,25 @@ function compute_gof_statistic(stat::GeodesicDistribution, state::NetworkState,
             for j in 1:n
                 if net[curr, j] == 1 && distances[j] == -1
                     distances[j] = distances[curr] + 1
-                    if distances[j] <= stat.max_dist
+                    if distances[j] < stat.max_dist
                         push!(queue, j)
                     end
                 end
             end
         end
 
-        # Count distances
         for j in 1:n
-            if i != j
-                if distances[j] == -1
-                    unreachable += 1
-                elseif distances[j] <= stat.max_dist
-                    dist_counts[distances[j] + 1] += 1
-                end
+            i == j && continue
+            if distances[j] == -1
+                beyond += 1
+            elseif distances[j] <= stat.max_dist
+                dist_counts[distances[j]] += 1
             end
         end
     end
 
-    labels = vcat(collect(1:stat.max_dist), [:unreachable])
-    counts = vcat(dist_counts[2:end], [unreachable])
+    labels = vcat(string.(1:stat.max_dist), ["unreachable"])
+    counts = vcat(dist_counts, [beyond])
 
     return labels, counts
 end
@@ -214,7 +255,7 @@ end
     compute_gof_statistic(stat::BehaviorDistribution, state::NetworkState,
                          data::SienaData)
 
-Compute behavior value distribution.
+Compute behavior value distribution. Returns `(levels, counts)`.
 """
 function compute_gof_statistic(stat::BehaviorDistribution, state::NetworkState,
                               data::SienaData)
@@ -245,11 +286,12 @@ Result of goodness of fit assessment.
 
 # Fields
 - `statistic::AbstractGOFStatistic`: The GOF statistic used
-- `observed::Vector`: Observed statistic values
-- `simulated::Matrix`: Simulated statistic values (n_sims × n_levels)
-- `p_values::Vector{Float64}`: P-values for each level
-- `mahalanobis::Float64`: Mahalanobis distance
-- `p_overall::Float64`: Overall p-value
+- `labels::Vector`: Labels of the statistic's levels
+- `observed::Vector{Int}`: Observed counts
+- `simulated::Matrix{Int}`: Simulated counts (n_sims × n_levels)
+- `p_values::Vector{Float64}`: Monte-Carlo two-sided p-values per level
+- `mahalanobis::Float64`: Mahalanobis distance of the observed vector
+- `p_overall::Float64`: Monte-Carlo p-value of the Mahalanobis distance
 """
 struct GOFResult
     statistic::AbstractGOFStatistic
@@ -263,7 +305,8 @@ end
 
 function Base.show(io::IO, result::GOFResult)
     println(io, "Goodness of Fit: $(typeof(result.statistic).name.name)")
-    println(io, "Overall p-value: $(round(result.p_overall, digits=4))")
+    println(io, "Overall p-value: $(round(result.p_overall, digits=4)) " *
+                "(Mahalanobis distance $(round(result.mahalanobis, digits=3)))")
     println(io)
     println(io, "Level-specific results:")
     for (i, label) in enumerate(result.labels)
@@ -271,7 +314,7 @@ function Base.show(io::IO, result::GOFResult)
         sim_mean = mean(result.simulated[:, i])
         sim_sd = std(result.simulated[:, i])
         p = result.p_values[i]
-        @printf(io, "  %-10s: obs=%d, sim=%.1f (%.1f), p=%.3f\n",
+        @printf(io, "  %-12s: obs=%d, sim=%.1f (%.1f), p=%.3f\n",
                 string(label), obs, sim_mean, sim_sd, p)
     end
 end
@@ -280,74 +323,62 @@ end
 # Main GOF Function
 #==============================================================================#
 
+# Mahalanobis distance with a regularized covariance.
+function _mahalanobis(x::Vector{Float64}, center::Vector{Float64}, C::Matrix{Float64})
+    diff = x .- center
+    return sqrt(max(0.0, dot(diff, C \ diff)))
+end
+
 """
     siena_gof(result::SienaResult, data::SienaData, statistic::AbstractGOFStatistic;
              n_sims::Int=100, seed::Union{Int, Nothing}=nothing)
 
-Assess goodness of fit for an estimated model.
-Equivalent to sienaGOF() in RSiena.
-
-# Arguments
-- `result::SienaResult`: Estimation result
-- `data::SienaData`: The data object
-- `statistic::AbstractGOFStatistic`: The GOF statistic to assess
-- `n_sims::Int`: Number of simulations
-- `seed`: Random seed
+Assess goodness of fit for an estimated model, comparing the statistic at the final
+wave of the simulations with the observed final wave. The overall p-value is the
+Monte-Carlo proportion of simulations whose Mahalanobis distance (with respect to the
+simulated distribution) is at least the observed one, as in RSiena's `sienaGOF`.
 """
 function siena_gof(result::SienaResult, data::SienaData, statistic::AbstractGOFStatistic;
                   n_sims::Int=100, seed::Union{Int, Nothing}=nothing)
 
     rng = isnothing(seed) ? Random.default_rng() : MersenneTwister(seed)
 
-    # Compute observed statistic
+    # Observed statistic at the final wave, and level-resolved statistic so that all
+    # simulated counts align with the observed support
     state_obs = NetworkState()
-    initialize!(state_obs, data, data.n_waves)
+    initialize!(state_obs, data, data.n_waves; period=data.n_waves - 1)
     labels, observed = compute_gof_statistic(statistic, state_obs, data)
+    stat = _with_levels(statistic, labels isa Vector{Int} ? labels : Int[])
 
     n_levels = length(observed)
     simulated = zeros(Int, n_sims, n_levels)
 
-    # Simulate and compute statistics
     for s in 1:n_sims
         state_sim, _ = simulate_saom(data, result.effects, result.estimates;
                                      seed=rand(rng, 1:10^8))
-        _, sim_counts = compute_gof_statistic(statistic, state_sim, data)
-
-        # Ensure same length
-        for i in 1:min(length(sim_counts), n_levels)
-            simulated[s, i] = sim_counts[i]
-        end
+        _, sim_counts = compute_gof_statistic(stat, state_sim, data)
+        simulated[s, :] = sim_counts
     end
 
-    # Compute p-values (two-sided)
+    # Per-level Monte-Carlo two-sided p-values
     p_values = Float64[]
     for i in 1:n_levels
         sim_col = simulated[:, i]
-        # Proportion of simulations as or more extreme than observed
         n_extreme = sum(abs.(sim_col .- mean(sim_col)) .>= abs(observed[i] - mean(sim_col)))
         push!(p_values, n_extreme / n_sims)
     end
 
-    # Overall test (simplified chi-square like measure)
-    obs_vec = Float64.(observed)
-    sim_mean = vec(mean(simulated, dims=1))
-    sim_cov = cov(Float64.(simulated))
+    # Overall Monte-Carlo Mahalanobis test
+    sim_f = Float64.(simulated)
+    center = vec(mean(sim_f, dims=1))
+    C = cov(sim_f)
+    C += (1e-6 + 0.01 * mean(diag(C))) * I  # regularize for invertibility
 
-    # Add small regularization to avoid singularity
-    sim_cov += 0.01 * I
+    obs_dist = _mahalanobis(Float64.(observed), center, C)
+    sim_dists = [_mahalanobis(sim_f[s, :], center, C) for s in 1:n_sims]
+    p_overall = (1 + count(>=(obs_dist), sim_dists)) / (n_sims + 1)
 
-    # Mahalanobis distance
-    diff = obs_vec .- sim_mean
-    try
-        mahal = sqrt(diff' * (sim_cov \ diff))
-    catch
-        mahal = sqrt(sum(diff.^2 ./ (diag(sim_cov) .+ 1e-6)))
-    end
-
-    # Approximate p-value using chi-square
-    p_overall = 1 - cdf(Chisq(n_levels), mahal^2)
-
-    return GOFResult(statistic, labels, observed, simulated, p_values, mahal, p_overall)
+    return GOFResult(statistic, labels, observed, simulated, p_values, obs_dist, p_overall)
 end
 
 #==============================================================================#
@@ -376,7 +407,7 @@ siena_gof_outdegree(result::SienaResult, data::SienaData, variable::Symbol; kwar
     siena_gof_triad(result::SienaResult, data::SienaData, variable::Symbol;
                    kwargs...)
 
-Assess GOF for triad census.
+Assess GOF for the triad census.
 """
 siena_gof_triad(result::SienaResult, data::SienaData, variable::Symbol; kwargs...) =
     siena_gof(result, data, TriadCensus(variable); kwargs...)

@@ -1,20 +1,34 @@
 """
-Behavior effects for SAOM evaluation function.
-Complete implementation of RSiena behavior effects.
+Behavior effects for the SAOM evaluation function.
+
+Each effect implements `evaluate_actor`, the actor's evaluation-function component
+``s_{ki}(x, z)``. Behavior values are centered on the overall observed mean
+(`dep.mean_val`) and similarity scores are centered on the observed mean similarity
+(`dep.sim_mean`), following RSiena. Change statistics are obtained through the generic
+difference fallback in `effects/base.jl` (``s_{ki}(z_i + d) - s_{ki}(z_i)``), which
+makes the no-change option's change statistic exactly 0.
 """
 
 #==============================================================================#
-# Helper function for behavior covariate access
+# Helpers
 #==============================================================================#
 
 function _get_beh_covariate_value(cov::AbstractCovariate, actor::Int, wave::Int)
-    if cov isa ConstantCovariate
-        return cov.values[actor]
-    elseif cov isa VaryingCovariate
-        w = min(wave, length(cov.values))
-        return cov.values[w][actor]
-    end
-    return 0.0
+    return _get_covariate_value(cov, actor, wave)
+end
+
+_behavior_dep(data::SienaData, name::Symbol) = data.dependents[name]::DependentBehavior
+
+# Centered behavior value
+_centered_beh(dep::DependentBehavior, z::Int) = z - dep.mean_val
+
+_behavior_range(dep::DependentBehavior) = Float64(dep.max_val - dep.min_val)
+
+# Centered similarity between two behavior values (RSiena's sim_ij - ^sim)
+function _centered_beh_similarity(dep::DependentBehavior, zi::Int, zj::Int)
+    r = _behavior_range(dep)
+    sim = r > 0 ? 1.0 - abs(zi - zj) / r : 1.0
+    return sim - dep.sim_mean
 end
 
 #==============================================================================#
@@ -24,7 +38,7 @@ end
 """
     LinearShapeEffect <: BehaviorEffect
 
-Linear shape effect. RSiena: linear
+Linear shape: ``s_i = \\tilde z_i``. RSiena: linear
 """
 struct LinearShapeEffect <: BehaviorEffect
     variable::Symbol
@@ -34,16 +48,16 @@ effect_name(::LinearShapeEffect) = :linear
 effect_type(::LinearShapeEffect) = :eval
 target_variable(e::LinearShapeEffect) = e.variable
 
-function compute_contribution(e::LinearShapeEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
-    return Float64(beh[actor] + direction)
+function evaluate_actor(e::LinearShapeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    dep = _behavior_dep(data, e.variable)
+    return _centered_beh(dep, state.behaviors[e.variable][actor])
 end
 
 """
     QuadraticShapeEffect <: BehaviorEffect
 
-Quadratic shape effect. RSiena: quad
+Quadratic shape: ``s_i = \\tilde z_i^2``. RSiena: quad
 """
 struct QuadraticShapeEffect <: BehaviorEffect
     variable::Symbol
@@ -53,19 +67,16 @@ effect_name(::QuadraticShapeEffect) = :quad
 effect_type(::QuadraticShapeEffect) = :eval
 target_variable(e::QuadraticShapeEffect) = e.variable
 
-function compute_contribution(e::QuadraticShapeEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
-    dep = data.dependents[e.variable]::DependentBehavior
-    mean_val = (dep.min_val + dep.max_val) / 2.0
-    new_val = beh[actor] + direction
-    return (new_val - mean_val)^2
+function evaluate_actor(e::QuadraticShapeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    dep = _behavior_dep(data, e.variable)
+    return _centered_beh(dep, state.behaviors[e.variable][actor])^2
 end
 
 """
     CubicShapeEffect <: BehaviorEffect
 
-Cubic shape effect. RSiena: cubic
+Cubic shape: ``s_i = \\tilde z_i^3``.
 """
 struct CubicShapeEffect <: BehaviorEffect
     variable::Symbol
@@ -75,13 +86,10 @@ effect_name(::CubicShapeEffect) = :cubic
 effect_type(::CubicShapeEffect) = :eval
 target_variable(e::CubicShapeEffect) = e.variable
 
-function compute_contribution(e::CubicShapeEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
-    dep = data.dependents[e.variable]::DependentBehavior
-    mean_val = (dep.min_val + dep.max_val) / 2.0
-    new_val = beh[actor] + direction
-    return (new_val - mean_val)^3
+function evaluate_actor(e::CubicShapeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    dep = _behavior_dep(data, e.variable)
+    return _centered_beh(dep, state.behaviors[e.variable][actor])^3
 end
 
 #==============================================================================#
@@ -91,7 +99,8 @@ end
 """
     AverageAlterEffect <: BehaviorEffect
 
-Average alter's behavior effect. RSiena: avAlt
+Average alter: ``s_i = \\tilde z_i \\cdot (\\sum_j x_{ij} \\tilde z_j) / x_{i+}``
+(0 for actors without outgoing ties). RSiena: avAlt
 """
 struct AverageAlterEffect <: BehaviorEffect
     variable::Symbol
@@ -103,20 +112,28 @@ effect_type(::AverageAlterEffect) = :eval
 target_variable(e::AverageAlterEffect) = e.variable
 interaction_with(e::AverageAlterEffect) = e.network
 
-function compute_contribution(e::AverageAlterEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::AverageAlterEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-    avg_alter = mean([beh[j] for j in neighbors])
-    return Float64(beh[actor] + direction) * avg_alter
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    total = 0.0
+    outdeg = 0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        total += _centered_beh(dep, beh[j])
+        outdeg += 1
+    end
+    outdeg == 0 && return 0.0
+    return _centered_beh(dep, beh[actor]) * total / outdeg
 end
 
 """
     AverageSimilarityEffect <: BehaviorEffect
 
-Average similarity effect. RSiena: avSim
+Average similarity:
+``s_i = x_{i+}^{-1} \\sum_j x_{ij} (\\text{sim}_{ij} - \\widehat{sim})``. RSiena: avSim
 """
 struct AverageSimilarityEffect <: BehaviorEffect
     variable::Symbol
@@ -128,26 +145,27 @@ effect_type(::AverageSimilarityEffect) = :eval
 target_variable(e::AverageSimilarityEffect) = e.variable
 interaction_with(e::AverageSimilarityEffect) = e.network
 
-function compute_contribution(e::AverageSimilarityEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::AverageSimilarityEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    dep = data.dependents[e.variable]::DependentBehavior
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-
-    range_val = Float64(dep.max_val - dep.min_val)
-    range_val == 0 && return 0.0
-    new_val = beh[actor] + direction
-
-    sim_sum = sum(1.0 - abs(new_val - beh[j]) / range_val for j in neighbors)
-    return sim_sum / length(neighbors)
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    total = 0.0
+    outdeg = 0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        total += _centered_beh_similarity(dep, beh[actor], beh[j])
+        outdeg += 1
+    end
+    outdeg == 0 && return 0.0
+    return total / outdeg
 end
 
 """
     AverageInAlterEffect <: BehaviorEffect
 
-Average in-alter's behavior. RSiena: avInAlt
+Average in-alter: like avAlt over incoming ties. RSiena: avInAlt
 """
 struct AverageInAlterEffect <: BehaviorEffect
     variable::Symbol
@@ -159,21 +177,27 @@ effect_type(::AverageInAlterEffect) = :eval
 target_variable(e::AverageInAlterEffect) = e.variable
 interaction_with(e::AverageInAlterEffect) = e.network
 
-function compute_contribution(e::AverageInAlterEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::AverageInAlterEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    # Actors who send ties to ego
-    in_neighbors = findall(net[:, actor] .== 1)
-    isempty(in_neighbors) && return 0.0
-    avg_in_alter = mean([beh[j] for j in in_neighbors])
-    return Float64(beh[actor] + direction) * avg_in_alter
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    total = 0.0
+    indeg = 0
+    for j in 1:n
+        (j == actor || net[j, actor] == 0) && continue
+        total += _centered_beh(dep, beh[j])
+        indeg += 1
+    end
+    indeg == 0 && return 0.0
+    return _centered_beh(dep, beh[actor]) * total / indeg
 end
 
 """
     AverageRecipAlterEffect <: BehaviorEffect
 
-Average reciprocal alter's behavior. RSiena: avRecAlt
+Average reciprocal alter: like avAlt over mutual ties. RSiena: avRecAlt
 """
 struct AverageRecipAlterEffect <: BehaviorEffect
     variable::Symbol
@@ -185,21 +209,29 @@ effect_type(::AverageRecipAlterEffect) = :eval
 target_variable(e::AverageRecipAlterEffect) = e.variable
 interaction_with(e::AverageRecipAlterEffect) = e.network
 
-function compute_contribution(e::AverageRecipAlterEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::AverageRecipAlterEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    # Reciprocal ties
-    recip_neighbors = findall((net[actor, :] .== 1) .& (net[:, actor] .== 1))
-    isempty(recip_neighbors) && return 0.0
-    avg_recip = mean([beh[j] for j in recip_neighbors])
-    return Float64(beh[actor] + direction) * avg_recip
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    total = 0.0
+    deg = 0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0 || net[j, actor] == 0) && continue
+        total += _centered_beh(dep, beh[j])
+        deg += 1
+    end
+    deg == 0 && return 0.0
+    return _centered_beh(dep, beh[actor]) * total / deg
 end
 
 """
     AverageAttHigherEffect <: BehaviorEffect
 
-Average attraction to higher. RSiena: avAttHigher
+Proportion of alters with strictly higher behavior:
+``s_i = x_{i+}^{-1} \\#\\{j : x_{ij} = 1, z_j > z_i\\}``.
+(Simplified relative to RSiena's avAttHigher.)
 """
 struct AverageAttHigherEffect <: BehaviorEffect
     variable::Symbol
@@ -211,23 +243,28 @@ effect_type(::AverageAttHigherEffect) = :eval
 target_variable(e::AverageAttHigherEffect) = e.variable
 interaction_with(e::AverageAttHigherEffect) = e.network
 
-function compute_contribution(e::AverageAttHigherEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::AverageAttHigherEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-
-    new_val = beh[actor] + direction
-    # Count alters with higher behavior
-    higher_count = sum(beh[j] > new_val ? 1.0 : 0.0 for j in neighbors)
-    return higher_count / length(neighbors)
+    n = size(net, 1)
+    count = 0
+    outdeg = 0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        beh[j] > beh[actor] && (count += 1)
+        outdeg += 1
+    end
+    outdeg == 0 && return 0.0
+    return count / outdeg
 end
 
 """
     AverageAttLowerEffect <: BehaviorEffect
 
-Average attraction to lower. RSiena: avAttLower
+Proportion of alters with strictly lower behavior:
+``s_i = x_{i+}^{-1} \\#\\{j : x_{ij} = 1, z_j < z_i\\}``.
+(Simplified relative to RSiena's avAttLower.)
 """
 struct AverageAttLowerEffect <: BehaviorEffect
     variable::Symbol
@@ -239,16 +276,20 @@ effect_type(::AverageAttLowerEffect) = :eval
 target_variable(e::AverageAttLowerEffect) = e.variable
 interaction_with(e::AverageAttLowerEffect) = e.network
 
-function compute_contribution(e::AverageAttLowerEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::AverageAttLowerEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-
-    new_val = beh[actor] + direction
-    lower_count = sum(beh[j] < new_val ? 1.0 : 0.0 for j in neighbors)
-    return lower_count / length(neighbors)
+    n = size(net, 1)
+    count = 0
+    outdeg = 0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        beh[j] < beh[actor] && (count += 1)
+        outdeg += 1
+    end
+    outdeg == 0 && return 0.0
+    return count / outdeg
 end
 
 #==============================================================================#
@@ -258,7 +299,7 @@ end
 """
     TotalAlterEffect <: BehaviorEffect
 
-Total alter's behavior. RSiena: totAlt
+Total alter: ``s_i = \\tilde z_i \\sum_j x_{ij} \\tilde z_j``. RSiena: totAlt
 """
 struct TotalAlterEffect <: BehaviorEffect
     variable::Symbol
@@ -270,20 +311,25 @@ effect_type(::TotalAlterEffect) = :eval
 target_variable(e::TotalAlterEffect) = e.variable
 interaction_with(e::TotalAlterEffect) = e.network
 
-function compute_contribution(e::TotalAlterEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::TotalAlterEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-    total_alter = sum(beh[j] for j in neighbors)
-    return Float64(beh[actor] + direction) * Float64(total_alter)
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    total = 0.0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        total += _centered_beh(dep, beh[j])
+    end
+    return _centered_beh(dep, beh[actor]) * total
 end
 
 """
     TotalSimilarityEffect <: BehaviorEffect
 
-Total similarity effect. RSiena: totSim
+Total similarity: ``s_i = \\sum_j x_{ij} (\\text{sim}_{ij} - \\widehat{sim})``.
+RSiena: totSim
 """
 struct TotalSimilarityEffect <: BehaviorEffect
     variable::Symbol
@@ -295,25 +341,24 @@ effect_type(::TotalSimilarityEffect) = :eval
 target_variable(e::TotalSimilarityEffect) = e.variable
 interaction_with(e::TotalSimilarityEffect) = e.network
 
-function compute_contribution(e::TotalSimilarityEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::TotalSimilarityEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    dep = data.dependents[e.variable]::DependentBehavior
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-
-    range_val = Float64(dep.max_val - dep.min_val)
-    range_val == 0 && return 0.0
-    new_val = beh[actor] + direction
-
-    return sum(1.0 - abs(new_val - beh[j]) / range_val for j in neighbors)
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    total = 0.0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        total += _centered_beh_similarity(dep, beh[actor], beh[j])
+    end
+    return total
 end
 
 """
     TotalInAlterEffect <: BehaviorEffect
 
-Total in-alter's behavior. RSiena: totInAlt
+Total in-alter: ``s_i = \\tilde z_i \\sum_j x_{ji} \\tilde z_j``. RSiena: totInAlt
 """
 struct TotalInAlterEffect <: BehaviorEffect
     variable::Symbol
@@ -325,14 +370,18 @@ effect_type(::TotalInAlterEffect) = :eval
 target_variable(e::TotalInAlterEffect) = e.variable
 interaction_with(e::TotalInAlterEffect) = e.network
 
-function compute_contribution(e::TotalInAlterEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::TotalInAlterEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    in_neighbors = findall(net[:, actor] .== 1)
-    isempty(in_neighbors) && return 0.0
-    total_in = sum(beh[j] for j in in_neighbors)
-    return Float64(beh[actor] + direction) * Float64(total_in)
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    total = 0.0
+    for j in 1:n
+        (j == actor || net[j, actor] == 0) && continue
+        total += _centered_beh(dep, beh[j])
+    end
+    return _centered_beh(dep, beh[actor]) * total
 end
 
 #==============================================================================#
@@ -342,7 +391,9 @@ end
 """
     AverageAlterDist2Effect <: BehaviorEffect
 
-Average alter at distance 2. RSiena: avAltDist2
+Average alter at distance 2:
+``s_i = \\tilde z_i \\cdot \\text{mean}\\{\\tilde z_k : k \\text{ at distance 2}\\}``.
+RSiena: avAltDist2
 """
 struct AverageAlterDist2Effect <: BehaviorEffect
     variable::Symbol
@@ -354,26 +405,32 @@ effect_type(::AverageAlterDist2Effect) = :eval
 target_variable(e::AverageAlterDist2Effect) = e.variable
 interaction_with(e::AverageAlterDist2Effect) = e.network
 
-function compute_contribution(e::AverageAlterDist2Effect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::AverageAlterDist2Effect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
+    dep = _behavior_dep(data, e.variable)
     n = size(net, 1)
 
-    # Find actors at distance 2 (friends of friends, not direct friends)
-    direct = Set(findall(net[actor, :] .== 1))
-    dist2 = Set{Int}()
-    for j in direct
-        for k in 1:n
-            if net[j, k] == 1 && k != actor && !(k in direct)
-                push!(dist2, k)
+    total = 0.0
+    count = 0
+    for k in 1:n
+        (k == actor || net[actor, k] == 1) && continue
+        at_dist2 = false
+        for j in 1:n
+            (j == actor || j == k) && continue
+            if net[actor, j] == 1 && net[j, k] == 1
+                at_dist2 = true
+                break
             end
         end
+        if at_dist2
+            total += _centered_beh(dep, beh[k])
+            count += 1
+        end
     end
-
-    isempty(dist2) && return 0.0
-    avg_dist2 = mean([beh[k] for k in dist2])
-    return Float64(beh[actor] + direction) * avg_dist2
+    count == 0 && return 0.0
+    return _centered_beh(dep, beh[actor]) * total / count
 end
 
 #==============================================================================#
@@ -383,7 +440,7 @@ end
 """
     IndegreeEffect <: BehaviorEffect
 
-Indegree effect on behavior. RSiena: indeg
+Indegree effect on behavior: ``s_i = \\tilde z_i x_{+i}``. RSiena: indeg
 """
 struct IndegreeEffect <: BehaviorEffect
     variable::Symbol
@@ -395,19 +452,18 @@ effect_type(::IndegreeEffect) = :eval
 target_variable(e::IndegreeEffect) = e.variable
 interaction_with(e::IndegreeEffect) = e.network
 
-function compute_contribution(e::IndegreeEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
+function evaluate_actor(e::IndegreeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     net = state.networks[e.network]
-    new_val = beh[actor] + direction
-    indeg = sum(net[:, actor])
-    return Float64(new_val) * Float64(indeg)
+    dep = _behavior_dep(data, e.variable)
+    z = _centered_beh(dep, state.behaviors[e.variable][actor])
+    return z * _col_sum(net, actor)
 end
 
 """
     BehaviorOutdegreeEffect <: BehaviorEffect
 
-Outdegree effect on behavior. RSiena: outdeg
+Outdegree effect on behavior: ``s_i = \\tilde z_i x_{i+}``. RSiena: outdeg
 """
 struct BehaviorOutdegreeEffect <: BehaviorEffect
     variable::Symbol
@@ -419,19 +475,19 @@ effect_type(::BehaviorOutdegreeEffect) = :eval
 target_variable(e::BehaviorOutdegreeEffect) = e.variable
 interaction_with(e::BehaviorOutdegreeEffect) = e.network
 
-function compute_contribution(e::BehaviorOutdegreeEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
+function evaluate_actor(e::BehaviorOutdegreeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     net = state.networks[e.network]
-    new_val = beh[actor] + direction
-    outdeg = sum(net[actor, :])
-    return Float64(new_val) * Float64(outdeg)
+    dep = _behavior_dep(data, e.variable)
+    z = _centered_beh(dep, state.behaviors[e.variable][actor])
+    return z * _row_sum(net, actor)
 end
 
 """
     RecipDegreeEffect <: BehaviorEffect
 
-Reciprocal degree effect. RSiena: recipDeg
+Reciprocal degree effect: ``s_i = \\tilde z_i \\#\\{j : x_{ij} x_{ji} = 1\\}``.
+RSiena: recipDeg
 """
 struct RecipDegreeEffect <: BehaviorEffect
     variable::Symbol
@@ -443,13 +499,18 @@ effect_type(::RecipDegreeEffect) = :eval
 target_variable(e::RecipDegreeEffect) = e.variable
 interaction_with(e::RecipDegreeEffect) = e.network
 
-function compute_contribution(e::RecipDegreeEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
+function evaluate_actor(e::RecipDegreeEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     net = state.networks[e.network]
-    new_val = beh[actor] + direction
-    recip_deg = sum((net[actor, :] .== 1) .& (net[:, actor] .== 1))
-    return Float64(new_val) * Float64(recip_deg)
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    recip = 0
+    for j in 1:n
+        j == actor && continue
+        recip += net[actor, j] * net[j, actor]
+    end
+    z = _centered_beh(dep, state.behaviors[e.variable][actor])
+    return z * recip
 end
 
 #==============================================================================#
@@ -459,7 +520,7 @@ end
 """
     BehaviorCovariateEffect <: BehaviorEffect
 
-Effect from covariate. RSiena: effFrom
+Effect from covariate: ``s_i = \\tilde z_i v_i``. RSiena: effFrom
 """
 struct BehaviorCovariateEffect <: BehaviorEffect
     variable::Symbol
@@ -471,17 +532,17 @@ effect_type(::BehaviorCovariateEffect) = :eval
 target_variable(e::BehaviorCovariateEffect) = e.variable
 interaction_with(e::BehaviorCovariateEffect) = e.covariate
 
-function compute_contribution(e::BehaviorCovariateEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
-    cov_val = _get_beh_covariate_value(data.covariates[e.covariate], actor, 1)
-    return Float64(beh[actor] + direction) * cov_val
+function evaluate_actor(e::BehaviorCovariateEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    dep = _behavior_dep(data, e.variable)
+    z = _centered_beh(dep, state.behaviors[e.variable][actor])
+    return z * _get_beh_covariate_value(data.covariates[e.covariate], actor, state.period)
 end
 
 """
     CovariateInteractionEffect <: BehaviorEffect
 
-Covariate × behavior interaction.
+Covariate × quadratic behavior interaction: ``s_i = \\tilde z_i^2 v_i``.
 """
 struct CovariateInteractionEffect <: BehaviorEffect
     variable::Symbol
@@ -493,12 +554,11 @@ effect_type(::CovariateInteractionEffect) = :eval
 target_variable(e::CovariateInteractionEffect) = e.variable
 interaction_with(e::CovariateInteractionEffect) = e.covariate
 
-function compute_contribution(e::CovariateInteractionEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
-    cov_val = _get_beh_covariate_value(data.covariates[e.covariate], actor, 1)
-    new_val = beh[actor] + direction
-    return Float64(new_val^2) * cov_val
+function evaluate_actor(e::CovariateInteractionEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    dep = _behavior_dep(data, e.variable)
+    z = _centered_beh(dep, state.behaviors[e.variable][actor])
+    return z^2 * _get_beh_covariate_value(data.covariates[e.covariate], actor, state.period)
 end
 
 #==============================================================================#
@@ -508,7 +568,7 @@ end
 """
     BehaviorInteractionEffect <: BehaviorEffect
 
-Effect of one behavior on another. RSiena: behBeh
+Effect of one behavior on another: ``s_i = \\tilde z_i \\tilde w_i``. RSiena: behBeh
 """
 struct BehaviorInteractionEffect <: BehaviorEffect
     variable::Symbol
@@ -520,17 +580,21 @@ effect_type(::BehaviorInteractionEffect) = :eval
 target_variable(e::BehaviorInteractionEffect) = e.variable
 interaction_with(e::BehaviorInteractionEffect) = e.other_behavior
 
-function compute_contribution(e::BehaviorInteractionEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
-    other = state.behaviors[e.other_behavior]
-    return Float64(beh[actor] + direction) * Float64(other[actor])
+function evaluate_actor(e::BehaviorInteractionEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    dep = _behavior_dep(data, e.variable)
+    other_dep = _behavior_dep(data, e.other_behavior)
+    z = _centered_beh(dep, state.behaviors[e.variable][actor])
+    w = _centered_beh(other_dep, state.behaviors[e.other_behavior][actor])
+    return z * w
 end
 
 """
     BehaviorSimilarityEffect <: BehaviorEffect
 
-Similarity in other behavior. RSiena: simBeh
+Similarity in another behavior:
+``s_i = \\tilde z_i \\cdot x_{i+}^{-1} \\sum_j x_{ij} \\text{sim}^w_{ij}`` where
+``\\text{sim}^w`` is similarity on the other behavior. RSiena: simBeh
 """
 struct BehaviorSimilarityEffect <: BehaviorEffect
     variable::Symbol
@@ -543,23 +607,24 @@ effect_type(::BehaviorSimilarityEffect) = :eval
 target_variable(e::BehaviorSimilarityEffect) = e.variable
 interaction_with(e::BehaviorSimilarityEffect) = e.other_behavior
 
-function compute_contribution(e::BehaviorSimilarityEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::BehaviorSimilarityEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     other = state.behaviors[e.other_behavior]
     net = state.networks[e.network]
+    dep = _behavior_dep(data, e.variable)
+    other_dep = _behavior_dep(data, e.other_behavior)
+    n = size(net, 1)
 
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-
-    new_val = beh[actor] + direction
-    # Similarity based on other behavior
-    other_dep = data.dependents[e.other_behavior]::DependentBehavior
-    range_val = Float64(other_dep.max_val - other_dep.min_val)
-    range_val == 0 && return 0.0
-
-    sim_sum = sum(1.0 - abs(other[actor] - other[j]) / range_val for j in neighbors)
-    return Float64(new_val) * sim_sum / length(neighbors)
+    total = 0.0
+    outdeg = 0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        total += _centered_beh_similarity(other_dep, other[actor], other[j])
+        outdeg += 1
+    end
+    outdeg == 0 && return 0.0
+    return _centered_beh(dep, beh[actor]) * total / outdeg
 end
 
 #==============================================================================#
@@ -569,7 +634,7 @@ end
 """
     ThresholdEffect <: BehaviorEffect
 
-Threshold effect. RSiena: threshold
+Threshold effect: ``s_i = I(z_i \\ge c)``.
 """
 struct ThresholdEffect <: BehaviorEffect
     variable::Symbol
@@ -580,17 +645,16 @@ effect_name(::ThresholdEffect) = :threshold
 effect_type(::ThresholdEffect) = :eval
 target_variable(e::ThresholdEffect) = e.variable
 
-function compute_contribution(e::ThresholdEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
-    new_val = beh[actor] + direction
-    return new_val >= e.threshold ? 1.0 : 0.0
+function evaluate_actor(e::ThresholdEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    return state.behaviors[e.variable][actor] >= e.threshold ? 1.0 : 0.0
 end
 
 """
     PropThresholdEffect <: BehaviorEffect
 
-Proportional threshold effect.
+Proportional threshold: ``s_i = \\tilde z_i`` if the proportion of alters at the
+behavior maximum is at least the threshold, else 0.
 """
 struct PropThresholdEffect <: BehaviorEffect
     variable::Symbol
@@ -603,20 +667,23 @@ effect_type(::PropThresholdEffect) = :eval
 target_variable(e::PropThresholdEffect) = e.variable
 interaction_with(e::PropThresholdEffect) = e.network
 
-function compute_contribution(e::PropThresholdEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::PropThresholdEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
-    dep = data.dependents[e.variable]::DependentBehavior
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
 
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-
-    new_val = beh[actor] + direction
-    # Proportion of alters above threshold
-    n_above = sum(beh[j] >= dep.max_val ? 1.0 : 0.0 for j in neighbors)
-    prop = n_above / length(neighbors)
-    return prop >= e.threshold ? Float64(new_val) : 0.0
+    n_above = 0
+    outdeg = 0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        beh[j] >= dep.max_val && (n_above += 1)
+        outdeg += 1
+    end
+    outdeg == 0 && return 0.0
+    prop = n_above / outdeg
+    return prop >= e.threshold ? _centered_beh(dep, beh[actor]) : 0.0
 end
 
 #==============================================================================#
@@ -626,7 +693,7 @@ end
 """
     BehaviorIsolateEffect <: BehaviorEffect
 
-Isolate effect on behavior. RSiena: isolate
+Isolate effect on behavior: ``s_i = \\tilde z_i I(x_{i+} = x_{+i} = 0)``.
 """
 struct BehaviorIsolateEffect <: BehaviorEffect
     variable::Symbol
@@ -638,14 +705,12 @@ effect_type(::BehaviorIsolateEffect) = :eval
 target_variable(e::BehaviorIsolateEffect) = e.variable
 interaction_with(e::BehaviorIsolateEffect) = e.network
 
-function compute_contribution(e::BehaviorIsolateEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    beh = state.behaviors[e.variable]
+function evaluate_actor(e::BehaviorIsolateEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     net = state.networks[e.network]
-    new_val = beh[actor] + direction
-    outdeg = sum(net[actor, :])
-    indeg = sum(net[:, actor])
-    return (outdeg == 0 && indeg == 0) ? Float64(new_val) : 0.0
+    dep = _behavior_dep(data, e.variable)
+    isolate = _row_sum(net, actor) == 0 && _col_sum(net, actor) == 0
+    return isolate ? _centered_beh(dep, state.behaviors[e.variable][actor]) : 0.0
 end
 
 #==============================================================================#
@@ -655,7 +720,8 @@ end
 """
     FeedbackEffect <: BehaviorEffect
 
-Feedback from network selection. RSiena: feedback
+Product of (uncentered) similarities with all alters:
+``s_i = \\prod_j (1 - |z_i - z_j|/r_Z)^{x_{ij}}`` (0 for isolates).
 """
 struct FeedbackEffect <: BehaviorEffect
     variable::Symbol
@@ -667,26 +733,23 @@ effect_type(::FeedbackEffect) = :eval
 target_variable(e::FeedbackEffect) = e.variable
 interaction_with(e::FeedbackEffect) = e.network
 
-function compute_contribution(e::FeedbackEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
+function evaluate_actor(e::FeedbackEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
+    dep = _behavior_dep(data, e.variable)
+    n = size(net, 1)
+    r = _behavior_range(dep)
+    r == 0 && return 0.0
 
-    new_val = beh[actor] + direction
-    # Product of similarity with all alters
-    neighbors = findall(net[actor, :] .== 1)
-    isempty(neighbors) && return 0.0
-
-    dep = data.dependents[e.variable]::DependentBehavior
-    range_val = Float64(dep.max_val - dep.min_val)
-    range_val == 0 && return 0.0
-
-    sim_prod = 1.0
-    for j in neighbors
-        sim = 1.0 - abs(new_val - beh[j]) / range_val
-        sim_prod *= sim
+    prod_sim = 1.0
+    outdeg = 0
+    for j in 1:n
+        (j == actor || net[actor, j] == 0) && continue
+        prod_sim *= 1.0 - abs(beh[actor] - beh[j]) / r
+        outdeg += 1
     end
-    return sim_prod
+    return outdeg == 0 ? 0.0 : prod_sim
 end
 
 #==============================================================================#
@@ -696,7 +759,8 @@ end
 """
     MainBehaviorEffect <: BehaviorEffect
 
-Main effect (constant tendency).
+Main effect (constant tendency): ``s_i = \\tilde z_i`` (identical to
+[`LinearShapeEffect`](@ref); kept for compatibility).
 """
 struct MainBehaviorEffect <: BehaviorEffect
     variable::Symbol
@@ -706,7 +770,8 @@ effect_name(::MainBehaviorEffect) = :main
 effect_type(::MainBehaviorEffect) = :eval
 target_variable(e::MainBehaviorEffect) = e.variable
 
-function compute_contribution(e::MainBehaviorEffect, state::NetworkState,
-                             data::SienaData, actor::Int, direction::Int)
-    return Float64(direction)
+function evaluate_actor(e::MainBehaviorEffect, state::NetworkState,
+                        data::SienaData, actor::Int)
+    dep = _behavior_dep(data, e.variable)
+    return _centered_beh(dep, state.behaviors[e.variable][actor])
 end

@@ -19,7 +19,7 @@ A good model should reproduce network features that were not explicitly modeled.
 |-----------|------|-------------|
 | [`IndegreeDistribution`](@ref) | Network | Distribution of actors' indegrees |
 | [`OutdegreeDistribution`](@ref) | Network | Distribution of actors' outdegrees |
-| [`TriadCensus`](@ref) | Network | Counts of triad types (mutual, asymmetric, null) |
+| [`TriadCensus`](@ref) | Network | Full 16-type Davis–Leinhardt triad census |
 | [`GeodesicDistribution`](@ref) | Network | Distribution of shortest path lengths |
 | [`BehaviorDistribution`](@ref) | Behavior | Distribution of behavior values |
 

@@ -181,21 +181,21 @@ Output:
 ```text
 SAOM Estimation Results
 =======================
-Converged: true
+Converged: true (max |t-ratio| = 0.193)
 Iterations: 1250
-
-Parameter Estimates:
---------------------
-outdegree           -2.4567 (0.1234) *
-recip                1.8901 (0.2345) *
-transTrip            0.3456 (0.0789) *
-samegender           0.2134 (0.0956) *
-simage               0.1567 (0.0678) *
 
 Rate Parameters:
 ----------------
-Rate friendship period 1:   5.4321
-Rate friendship period 2:   6.7890
+Rate friendship (period 1)     5.4321 (0.9163)
+Rate friendship (period 2)     6.7890 (1.0963)
+
+Objective Function Parameters:
+------------------------------
+outdegree                     -2.4567 (0.1234) *
+recip                          1.8901 (0.2345) *
+transTrip                      0.3456 (0.0789) *
+samegender                     0.2134 (0.0956) *
+simage                         0.1567 (0.0678) *
 ```
 
 ### Accessor Functions
@@ -240,19 +240,19 @@ SAOM coefficients represent weights in the objective function. They are not dire
 
 ### Significance Testing
 
-Parameters are tested using their t-statistic (estimate / standard error):
+Parameters are tested using their t-statistic (estimate / standard error). The
+estimate vector contains the free rate parameters first, then the objective
+parameters; `parameter_names` gives the matching labels:
 
 ```julia
 estimates = coef(result)
 ses = stderror(result)
 
-for (i, entry) in enumerate(get_objective_effects(result.effects))
-    if !entry.fix
-        t_stat = estimates[i] / ses[i]
-        sig = abs(t_stat) > 1.96 ? "significant" : "not significant"
-        println("$(entry.shortname): $(round(estimates[i], digits=3)) ",
-                "(SE=$(round(ses[i], digits=3)), t=$(round(t_stat, digits=2))) - $sig")
-    end
+for (name, est, se) in zip(result.parameter_names, estimates, ses)
+    t_stat = est / se
+    sig = abs(t_stat) > 1.96 ? "significant" : "not significant"
+    println("$name: $(round(est, digits=3)) ",
+            "(SE=$(round(se, digits=3)), t=$(round(t_stat, digits=2))) - $sig")
 end
 ```
 
@@ -316,15 +316,13 @@ algorithm = siena_algorithm(
 3. **Use previous estimates as starting values**:
 
 ```julia
-# After first run
+# After first run: coef(result) is aligned with the free entries of the
+# parameter map (rates first, then objective effects)
 prev_estimates = coef(result)
 
-# Set initial values for next run
-obj_effects = get_objective_effects(effects)
-for (i, entry) in enumerate(obj_effects)
-    if !entry.fix && i <= length(prev_estimates)
-        entry.initial_value = prev_estimates[i]
-    end
+pm = build_param_map(effects)
+for (i, entry) in enumerate(pm.free)
+    entry.initial_value = prev_estimates[i]
 end
 
 # Re-run
@@ -342,14 +340,11 @@ algorithm = siena_algorithm(initial_gain=0.05, seed=42)
 ### Standard Confidence Intervals
 
 ```julia
-# 95% confidence intervals
+# 95% confidence intervals (rows aligned with result.parameter_names)
 ci = confint(result)
 
-obj_effects = get_objective_effects(result.effects)
-for (i, entry) in enumerate(obj_effects)
-    if !entry.fix
-        println("$(entry.shortname): [$(round(ci[i,1], digits=3)), $(round(ci[i,2], digits=3))]")
-    end
+for (i, name) in enumerate(result.parameter_names)
+    println("$name: [$(round(ci[i,1], digits=3)), $(round(ci[i,2], digits=3))]")
 end
 ```
 
@@ -381,9 +376,9 @@ If a covariate perfectly predicts tie presence/absence, the coefficient diverges
 
 ```julia
 # Check for extreme estimates
-for (i, entry) in enumerate(get_objective_effects(result.effects))
-    if !entry.fix && abs(coef(result)[i]) > 10
-        println("WARNING: Possibly separated effect: $(entry.shortname)")
+for (name, est) in zip(result.parameter_names, coef(result))
+    if abs(est) >= 8
+        println("WARNING: Possibly separated effect: $name")
     end
 end
 ```

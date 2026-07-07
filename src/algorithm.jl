@@ -25,6 +25,8 @@ Configuration for the SAOM estimation algorithm.
 - `n_simulations::Int`: Number of simulations per iteration
 - `parallel::Bool`: Use parallel processing
 - `verbose::Bool`: Print progress
+- `derivative_sims::Int`: Simulations per parameter for finite-difference derivative
+  estimation (with common random numbers)
 """
 mutable struct SienaAlgorithm
     n_subphases::Int
@@ -40,6 +42,7 @@ mutable struct SienaAlgorithm
     n_simulations::Int
     parallel::Bool
     verbose::Bool
+    derivative_sims::Int
 
     function SienaAlgorithm(;
         n_subphases::Int=4,
@@ -54,14 +57,16 @@ mutable struct SienaAlgorithm
         conditional::Bool=false,
         n_simulations::Int=1,
         parallel::Bool=false,
-        verbose::Bool=true
+        verbose::Bool=true,
+        derivative_sims::Int=30
     )
         if model_type ∉ (:standard, :behavioronly, :networkonly)
             throw(ArgumentError("model_type must be :standard, :behavioronly, or :networkonly"))
         end
         new(n_subphases, phase1_iterations, phase3_iterations,
             initial_gain, min_gain, max_iterations, convergence_threshold,
-            seed, model_type, conditional, n_simulations, parallel, verbose)
+            seed, model_type, conditional, n_simulations, parallel, verbose,
+            derivative_sims)
     end
 end
 
@@ -195,17 +200,19 @@ end
 
 """
     update_convergence!(cs::ConvergenceStats, deviations::Vector{Float64},
-                       se::Vector{Float64})
+                       scale::Vector{Float64})
 
-Update convergence statistics.
+Update convergence statistics. `deviations` are the differences between mean
+simulated and target statistics; `scale` is the standard deviation of the simulated
+statistics (RSiena's convergence t-ratio denominator).
 """
 function update_convergence!(cs::ConvergenceStats, deviations::Vector{Float64},
-                            se::Vector{Float64})
+                            scale::Vector{Float64})
     for i in eachindex(cs.t_ratios)
-        if se[i] > 0
-            cs.t_ratios[i] = deviations[i] / se[i]
+        if scale[i] > 0
+            cs.t_ratios[i] = deviations[i] / scale[i]
         else
-            cs.t_ratios[i] = Inf
+            cs.t_ratios[i] = abs(deviations[i]) < 1e-8 ? 0.0 : Inf
         end
     end
     cs.max_t_ratio = maximum(abs.(cs.t_ratios))

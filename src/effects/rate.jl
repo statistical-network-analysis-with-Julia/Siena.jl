@@ -1,5 +1,12 @@
 """
 Rate effects for SAOM.
+
+The SAOM rate function is multiplicative:
+``\\lambda_i = \\rho_m \\prod_k \\exp(\\alpha_k r_{ki}(x))``
+where ``\\rho_m`` is the basic rate parameter for the period and each non-basic rate
+effect contributes a factor ``\\exp(\\alpha_k r_{ki})``. Every rate effect implements
+`rate_score` returning the score ``r_{ki}``; the basic rate effect has score 1 and its
+parameter is the rate ``\\rho_m`` itself (not its logarithm).
 """
 
 #==============================================================================#
@@ -9,7 +16,8 @@ Rate effects for SAOM.
 """
     BasicRateEffect <: RateEffect
 
-Basic rate parameter for a period.
+Basic rate parameter for a period. The associated parameter is the rate ``\\rho_m``
+itself (a positive number, as in RSiena).
 """
 struct BasicRateEffect <: RateEffect
     variable::Symbol
@@ -21,14 +29,27 @@ effect_type(::BasicRateEffect) = :rate
 target_variable(e::BasicRateEffect) = e.variable
 
 """
-    compute_rate(e::BasicRateEffect, θ::Float64, state::NetworkState,
+    rate_score(e::RateEffect, state::NetworkState, data::SienaData, actor::Int)
+
+Score ``r_{ki}(x)`` of the rate effect for a given actor. The effect's multiplicative
+contribution to the actor's rate is ``\\exp(\\alpha_k r_{ki})``; the same score defines
+the effect's Method-of-Moments statistic ``\\sum_i r_{ki} d_i`` (with ``d_i`` the
+amount of change by actor ``i``).
+"""
+function rate_score end
+
+rate_score(::BasicRateEffect, state::NetworkState, data::SienaData, actor::Int) = 1.0
+
+"""
+    compute_rate(e::RateEffect, θ::Float64, state::NetworkState,
                 data::SienaData, actor::Int)
 
-Compute the rate for a given actor.
+Multiplicative rate factor ``\\exp(\\theta \\cdot r_{ki})`` of a (non-basic) rate
+effect for a given actor.
 """
-function compute_rate(e::BasicRateEffect, θ::Float64, state::NetworkState,
+function compute_rate(e::RateEffect, θ::Float64, state::NetworkState,
                      data::SienaData, actor::Int)
-    return exp(θ)
+    return exp(θ * rate_score(e, state, data, actor))
 end
 
 #==============================================================================#
@@ -38,7 +59,7 @@ end
 """
     CovariateRateEffect <: RateEffect
 
-Rate depends on a covariate value.
+Rate depends on a covariate value: score ``v_i``.
 """
 struct CovariateRateEffect <: RateEffect
     variable::Symbol
@@ -51,17 +72,30 @@ effect_type(::CovariateRateEffect) = :rate
 target_variable(e::CovariateRateEffect) = e.variable
 interaction_with(e::CovariateRateEffect) = e.covariate
 
-function compute_rate(e::CovariateRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    cov = data.covariates[e.covariate]
-    cov_val = if cov isa ConstantCovariate
-        cov.values[actor]
-    elseif cov isa VaryingCovariate
-        cov.values[min(e.period, length(cov.values))][actor]
-    else
-        0.0
-    end
-    return exp(θ * cov_val)
+function rate_score(e::CovariateRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return _get_covariate_value(data.covariates[e.covariate], actor, state.period)
+end
+
+"""
+    CovariateSqRateEffect <: RateEffect
+
+Rate depends on the squared covariate value: score ``v_i^2``.
+"""
+struct CovariateSqRateEffect <: RateEffect
+    variable::Symbol
+    covariate::Symbol
+    period::Int
+end
+
+effect_name(e::CovariateSqRateEffect) = Symbol("rateSq$(e.covariate)")
+effect_type(::CovariateSqRateEffect) = :rate
+target_variable(e::CovariateSqRateEffect) = e.variable
+interaction_with(e::CovariateSqRateEffect) = e.covariate
+
+function rate_score(e::CovariateSqRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return _get_covariate_value(data.covariates[e.covariate], actor, state.period)^2
 end
 
 #==============================================================================#
@@ -71,7 +105,7 @@ end
 """
     OutdegreeRateEffect <: RateEffect
 
-Rate depends on outdegree.
+Rate depends on outdegree: score ``x_{i+}``.
 """
 struct OutdegreeRateEffect <: RateEffect
     variable::Symbol
@@ -84,17 +118,15 @@ effect_type(::OutdegreeRateEffect) = :rate
 target_variable(e::OutdegreeRateEffect) = e.variable
 interaction_with(e::OutdegreeRateEffect) = e.network
 
-function compute_rate(e::OutdegreeRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    net = state.networks[e.network]
-    outdeg = sum(net[actor, :])
-    return exp(θ * outdeg)
+function rate_score(e::OutdegreeRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return Float64(_row_sum(state.networks[e.network], actor))
 end
 
 """
     IndegreeRateEffect <: RateEffect
 
-Rate depends on indegree.
+Rate depends on indegree: score ``x_{+i}``.
 """
 struct IndegreeRateEffect <: RateEffect
     variable::Symbol
@@ -107,16 +139,10 @@ effect_type(::IndegreeRateEffect) = :rate
 target_variable(e::IndegreeRateEffect) = e.variable
 interaction_with(e::IndegreeRateEffect) = e.network
 
-function compute_rate(e::IndegreeRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    net = state.networks[e.network]
-    indeg = sum(net[:, actor])
-    return exp(θ * indeg)
+function rate_score(e::IndegreeRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return Float64(_col_sum(state.networks[e.network], actor))
 end
-
-#==============================================================================#
-# Log/Inverse Degree Rate Effects
-#==============================================================================#
 
 """
     OutdegreeLogRateEffect <: RateEffect
@@ -134,11 +160,9 @@ effect_type(::OutdegreeLogRateEffect) = :rate
 target_variable(e::OutdegreeLogRateEffect) = e.variable
 interaction_with(e::OutdegreeLogRateEffect) = e.network
 
-function compute_rate(e::OutdegreeLogRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    net = state.networks[e.network]
-    outdeg = sum(net[actor, :])
-    return exp(θ * log(outdeg + 1))
+function rate_score(e::OutdegreeLogRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return log(_row_sum(state.networks[e.network], actor) + 1)
 end
 
 """
@@ -157,11 +181,9 @@ effect_type(::IndegreeLogRateEffect) = :rate
 target_variable(e::IndegreeLogRateEffect) = e.variable
 interaction_with(e::IndegreeLogRateEffect) = e.network
 
-function compute_rate(e::IndegreeLogRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    net = state.networks[e.network]
-    indeg = sum(net[:, actor])
-    return exp(θ * log(indeg + 1))
+function rate_score(e::IndegreeLogRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return log(_col_sum(state.networks[e.network], actor) + 1)
 end
 
 """
@@ -180,11 +202,9 @@ effect_type(::OutdegreeInvRateEffect) = :rate
 target_variable(e::OutdegreeInvRateEffect) = e.variable
 interaction_with(e::OutdegreeInvRateEffect) = e.network
 
-function compute_rate(e::OutdegreeInvRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    net = state.networks[e.network]
-    outdeg = sum(net[actor, :])
-    return exp(θ / (outdeg + 1))
+function rate_score(e::OutdegreeInvRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return 1.0 / (_row_sum(state.networks[e.network], actor) + 1)
 end
 
 """
@@ -203,11 +223,30 @@ effect_type(::IndegreeInvRateEffect) = :rate
 target_variable(e::IndegreeInvRateEffect) = e.variable
 interaction_with(e::IndegreeInvRateEffect) = e.network
 
-function compute_rate(e::IndegreeInvRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    net = state.networks[e.network]
-    indeg = sum(net[:, actor])
-    return exp(θ / (indeg + 1))
+function rate_score(e::IndegreeInvRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return 1.0 / (_col_sum(state.networks[e.network], actor) + 1)
+end
+
+"""
+    OutdegreeSqRateEffect <: RateEffect
+
+Rate depends on squared outdegree: score ``x_{i+}^2``.
+"""
+struct OutdegreeSqRateEffect <: RateEffect
+    variable::Symbol
+    network::Symbol
+    period::Int
+end
+
+effect_name(::OutdegreeSqRateEffect) = :outRateSq
+effect_type(::OutdegreeSqRateEffect) = :rate
+target_variable(e::OutdegreeSqRateEffect) = e.variable
+interaction_with(e::OutdegreeSqRateEffect) = e.network
+
+function rate_score(e::OutdegreeSqRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    return Float64(_row_sum(state.networks[e.network], actor))^2
 end
 
 #==============================================================================#
@@ -217,7 +256,7 @@ end
 """
     RecipDegreeRateEffect <: RateEffect
 
-Rate depends on number of reciprocated ties.
+Rate depends on the number of reciprocated ties.
 """
 struct RecipDegreeRateEffect <: RateEffect
     variable::Symbol
@@ -230,8 +269,8 @@ effect_type(::RecipDegreeRateEffect) = :rate
 target_variable(e::RecipDegreeRateEffect) = e.variable
 interaction_with(e::RecipDegreeRateEffect) = e.network
 
-function compute_rate(e::RecipDegreeRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
+function rate_score(e::RecipDegreeRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
     net = state.networks[e.network]
     n = size(net, 1)
     recip = 0
@@ -240,7 +279,7 @@ function compute_rate(e::RecipDegreeRateEffect, θ::Float64, state::NetworkState
             recip += 1
         end
     end
-    return exp(θ * recip)
+    return Float64(recip)
 end
 
 """
@@ -258,7 +297,7 @@ const OutRecipRateEffect = RecipDegreeRateEffect
 """
     BehaviorRateEffect <: RateEffect
 
-Rate depends on actor's own behavior value.
+Rate depends on the actor's own (mean-centered) behavior value.
 """
 struct BehaviorRateEffect <: RateEffect
     variable::Symbol
@@ -271,23 +310,18 @@ effect_type(::BehaviorRateEffect) = :rate
 target_variable(e::BehaviorRateEffect) = e.variable
 interaction_with(e::BehaviorRateEffect) = e.behavior
 
-function compute_rate(e::BehaviorRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    beh_val = haskey(state.behaviors, e.behavior) ? state.behaviors[e.behavior][actor] : 0
-    # Center the behavior value
+function rate_score(e::BehaviorRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    haskey(state.behaviors, e.behavior) || return 0.0
     dep = data.dependents[e.behavior]
-    if dep isa DependentBehavior
-        centered = beh_val - (dep.min_val + dep.max_val) / 2
-    else
-        centered = Float64(beh_val)
-    end
-    return exp(θ * centered)
+    z = state.behaviors[e.behavior][actor]
+    return dep isa DependentBehavior ? z - dep.mean_val : Float64(z)
 end
 
 """
     AverageAlterRateEffect <: RateEffect
 
-Rate depends on average behavior of alters (outgoing ties).
+Rate depends on the average (mean-centered) behavior of out-alters.
 """
 struct AverageAlterRateEffect <: RateEffect
     variable::Symbol
@@ -301,39 +335,30 @@ effect_type(::AverageAlterRateEffect) = :rate
 target_variable(e::AverageAlterRateEffect) = e.variable
 interaction_with(e::AverageAlterRateEffect) = e.behavior
 
-function compute_rate(e::AverageAlterRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
+function rate_score(e::AverageAlterRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
     net = state.networks[e.network]
-    beh = haskey(state.behaviors, e.behavior) ? state.behaviors[e.behavior] : zeros(Int, size(net, 1))
+    haskey(state.behaviors, e.behavior) || return 0.0
+    beh = state.behaviors[e.behavior]
+    dep = data.dependents[e.behavior]
+    center = dep isa DependentBehavior ? dep.mean_val : 0.0
 
     n = size(net, 1)
-    outdeg = sum(net[actor, :])
-
-    if outdeg == 0
-        return 1.0  # exp(0) when no alters
-    end
-
-    total_beh = 0.0
+    total = 0.0
+    outdeg = 0
     for j in 1:n
         if j != actor && net[actor, j] == 1
-            total_beh += beh[j]
+            total += beh[j] - center
+            outdeg += 1
         end
     end
-    avg_beh = total_beh / outdeg
-
-    # Center
-    dep = data.dependents[e.behavior]
-    if dep isa DependentBehavior
-        avg_beh -= (dep.min_val + dep.max_val) / 2
-    end
-
-    return exp(θ * avg_beh)
+    return outdeg == 0 ? 0.0 : total / outdeg
 end
 
 """
     TotalAlterRateEffect <: RateEffect
 
-Rate depends on total behavior of alters (outgoing ties).
+Rate depends on the total (mean-centered) behavior of out-alters.
 """
 struct TotalAlterRateEffect <: RateEffect
     variable::Symbol
@@ -347,20 +372,22 @@ effect_type(::TotalAlterRateEffect) = :rate
 target_variable(e::TotalAlterRateEffect) = e.variable
 interaction_with(e::TotalAlterRateEffect) = e.behavior
 
-function compute_rate(e::TotalAlterRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
+function rate_score(e::TotalAlterRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
     net = state.networks[e.network]
-    beh = haskey(state.behaviors, e.behavior) ? state.behaviors[e.behavior] : zeros(Int, size(net, 1))
+    haskey(state.behaviors, e.behavior) || return 0.0
+    beh = state.behaviors[e.behavior]
+    dep = data.dependents[e.behavior]
+    center = dep isa DependentBehavior ? dep.mean_val : 0.0
 
     n = size(net, 1)
-    total_beh = 0.0
+    total = 0.0
     for j in 1:n
         if j != actor && net[actor, j] == 1
-            total_beh += beh[j]
+            total += beh[j] - center
         end
     end
-
-    return exp(θ * total_beh)
+    return total
 end
 
 #==============================================================================#
@@ -370,7 +397,7 @@ end
 """
     SimilarityRateEffect <: RateEffect
 
-Rate depends on average similarity with alters on behavior.
+Rate depends on average behavior similarity with out-alters.
 """
 struct SimilarityRateEffect <: RateEffect
     variable::Symbol
@@ -384,35 +411,26 @@ effect_type(::SimilarityRateEffect) = :rate
 target_variable(e::SimilarityRateEffect) = e.variable
 interaction_with(e::SimilarityRateEffect) = e.behavior
 
-function compute_rate(e::SimilarityRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
+function rate_score(e::SimilarityRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
     net = state.networks[e.network]
-    beh = haskey(state.behaviors, e.behavior) ? state.behaviors[e.behavior] : zeros(Int, size(net, 1))
-
+    haskey(state.behaviors, e.behavior) || return 0.0
+    beh = state.behaviors[e.behavior]
     dep = data.dependents[e.behavior]
     beh_range = dep isa DependentBehavior ? (dep.max_val - dep.min_val) : 1
-    if beh_range == 0
-        beh_range = 1
-    end
+    beh_range == 0 && (beh_range = 1)
 
     n = size(net, 1)
-    outdeg = sum(net[actor, :])
-
-    if outdeg == 0
-        return 1.0
-    end
-
     total_sim = 0.0
+    outdeg = 0
     ego_val = beh[actor]
     for j in 1:n
         if j != actor && net[actor, j] == 1
-            sim = 1.0 - abs(ego_val - beh[j]) / beh_range
-            total_sim += sim
+            total_sim += 1.0 - abs(ego_val - beh[j]) / beh_range
+            outdeg += 1
         end
     end
-    avg_sim = total_sim / outdeg
-
-    return exp(θ * avg_sim)
+    return outdeg == 0 ? 0.0 : total_sim / outdeg
 end
 
 #==============================================================================#
@@ -422,8 +440,8 @@ end
 """
     SettingRateEffect <: RateEffect
 
-Rate effect for settings/groups (primary setting model).
-Rate multiplier for actors in a particular setting.
+Rate multiplier for actors in a particular setting: score
+``I(v_i = \\text{setting value})``.
 """
 struct SettingRateEffect <: RateEffect
     variable::Symbol
@@ -437,23 +455,10 @@ effect_type(::SettingRateEffect) = :rate
 target_variable(e::SettingRateEffect) = e.variable
 interaction_with(e::SettingRateEffect) = e.setting
 
-function compute_rate(e::SettingRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    cov = data.covariates[e.setting]
-    cov_val = if cov isa ConstantCovariate
-        cov.values[actor]
-    elseif cov isa VaryingCovariate
-        cov.values[min(e.period, length(cov.values))][actor]
-    else
-        0.0
-    end
-
-    # Rate multiplier only applies if actor is in this setting
-    if round(Int, cov_val) == e.setting_value
-        return exp(θ)
-    else
-        return 1.0  # No effect
-    end
+function rate_score(e::SettingRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
+    cov_val = _get_covariate_value(data.covariates[e.setting], actor, state.period)
+    return round(Int, cov_val) == e.setting_value ? 1.0 : 0.0
 end
 
 #==============================================================================#
@@ -463,7 +468,7 @@ end
 """
     EgoAlterRateEffect <: RateEffect
 
-Rate depends on product of ego and alter covariate values, summed over ties.
+Rate depends on the sum of ego × alter covariate products over outgoing ties.
 """
 struct EgoAlterRateEffect <: RateEffect
     variable::Symbol
@@ -477,91 +482,20 @@ effect_type(::EgoAlterRateEffect) = :rate
 target_variable(e::EgoAlterRateEffect) = e.variable
 interaction_with(e::EgoAlterRateEffect) = e.covariate
 
-function compute_rate(e::EgoAlterRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
+function rate_score(e::EgoAlterRateEffect, state::NetworkState,
+                    data::SienaData, actor::Int)
     net = state.networks[e.network]
     cov = data.covariates[e.covariate]
+    ego_val = _get_covariate_value(cov, actor, state.period)
 
     n = size(net, 1)
-    ego_val = if cov isa ConstantCovariate
-        cov.values[actor]
-    elseif cov isa VaryingCovariate
-        cov.values[min(e.period, length(cov.values))][actor]
-    else
-        0.0
-    end
-
     total = 0.0
     for j in 1:n
         if j != actor && net[actor, j] == 1
-            alt_val = if cov isa ConstantCovariate
-                cov.values[j]
-            elseif cov isa VaryingCovariate
-                cov.values[min(e.period, length(cov.values))][j]
-            else
-                0.0
-            end
-            total += ego_val * alt_val
+            total += ego_val * _get_covariate_value(cov, j, state.period)
         end
     end
-
-    return exp(θ * total)
-end
-
-#==============================================================================#
-# Squared/Quadratic Rate Effects
-#==============================================================================#
-
-"""
-    CovariateSqRateEffect <: RateEffect
-
-Rate depends on squared covariate value.
-"""
-struct CovariateSqRateEffect <: RateEffect
-    variable::Symbol
-    covariate::Symbol
-    period::Int
-end
-
-effect_name(e::CovariateSqRateEffect) = Symbol("rateSq$(e.covariate)")
-effect_type(::CovariateSqRateEffect) = :rate
-target_variable(e::CovariateSqRateEffect) = e.variable
-interaction_with(e::CovariateSqRateEffect) = e.covariate
-
-function compute_rate(e::CovariateSqRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    cov = data.covariates[e.covariate]
-    cov_val = if cov isa ConstantCovariate
-        cov.values[actor]
-    elseif cov isa VaryingCovariate
-        cov.values[min(e.period, length(cov.values))][actor]
-    else
-        0.0
-    end
-    return exp(θ * cov_val^2)
-end
-
-"""
-    OutdegreeSqRateEffect <: RateEffect
-
-Rate depends on squared outdegree.
-"""
-struct OutdegreeSqRateEffect <: RateEffect
-    variable::Symbol
-    network::Symbol
-    period::Int
-end
-
-effect_name(::OutdegreeSqRateEffect) = :outRateSq
-effect_type(::OutdegreeSqRateEffect) = :rate
-target_variable(e::OutdegreeSqRateEffect) = e.variable
-interaction_with(e::OutdegreeSqRateEffect) = e.network
-
-function compute_rate(e::OutdegreeSqRateEffect, θ::Float64, state::NetworkState,
-                     data::SienaData, actor::Int)
-    net = state.networks[e.network]
-    outdeg = sum(net[actor, :])
-    return exp(θ * outdeg^2)
+    return total
 end
 
 #==============================================================================#
@@ -569,24 +503,20 @@ end
 #==============================================================================#
 
 """
-    compute_total_rate(effects::Vector{<:RateEffect}, θ::Vector{Float64},
-                      state::NetworkState, data::SienaData, actor::Int)
+    actor_rate(λ_basic::Float64, effects::Vector{EffectEntry}, θ::Vector{Float64},
+              state::NetworkState, data::SienaData, actor::Int)
 
-Compute the total rate for an actor given all rate effects and parameters.
-If θ is empty or shorter than effects, uses default rate of 1.0.
+Compute the rate ``\\lambda_i = \\lambda \\prod_k \\exp(\\theta_k r_{ki})`` for an
+actor, given the basic rate and the non-basic rate effect entries with their
+parameters.
 """
-function compute_total_rate(effects::Vector{<:RateEffect}, θ::Vector{Float64},
-                           state::NetworkState, data::SienaData, actor::Int)
-    if isempty(effects) || isempty(θ)
-        return 1.0
+function actor_rate(λ_basic::Float64, effects::Vector{EffectEntry}, θ::Vector{Float64},
+                    state::NetworkState, data::SienaData, actor::Int)
+    λ = λ_basic
+    for (k, entry) in enumerate(effects)
+        λ *= exp(θ[k] * rate_score(entry.effect::RateEffect, state, data, actor))
     end
-
-    total = 0.0
-    for (i, eff) in enumerate(effects)
-        param = i <= length(θ) ? θ[i] : 0.0  # Default to exp(0) = 1.0 rate
-        total += compute_rate(eff, param, state, data, actor)
-    end
-    return total
+    return λ
 end
 
 """
