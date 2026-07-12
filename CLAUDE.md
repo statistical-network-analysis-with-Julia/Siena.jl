@@ -48,6 +48,8 @@ Three-phase Robbins-Monro algorithm in `siena07`:
 2. **Phase 2** -- subphases with estimated derivative matrix and decaying gain
 3. **Phase 3** -- fixed parameters, collecting simulations for SE estimation via `D^{-1} Sigma D^{-T}` (derivative `D` from the score-function estimator by default, or finite differences with common random numbers)
 
+Conditional estimation (`SienaAlgorithm(conditional=true)`, RSiena's `cond=TRUE`) conditions every simulated period on the observed amount of change of one dependent variable (`condvar`, defaulting to the only one): periods run until the conditioning variable's distance from the period-start observation reaches the observed distance instead of until time 1. The conditioned variable's basic rate entries are fixed out of the moment equations and estimated from phase-3 stopping times (`rate_estimates`); the derivative estimator falls back to finite differences. Composition change attached via `add_composition_change!(data, cc)` uses RSiena's MoM semantics: actors contribute to a period only when present at both endpoint waves (no ministeps, dyads out of candidate sets, rows/columns out of the moment statistics and rate distances).
+
 Phase-3 simulations and derivative estimation are embarrassingly parallel and run under `Threads.@threads`: seeds are pre-drawn from the algorithm RNG in serial order and each simulation runs on its own seeded RNG writing to its own result slot, so results are bitwise identical regardless of `JULIA_NUM_THREADS`.
 
 Result type `SienaResult` provides `coef`, `stderror`, `vcov`, `confint` (StatsAPI methods).

@@ -43,6 +43,33 @@ Estimation proceeds in three distinct phases:
 
 ## Configuring the Algorithm
 
+The examples on this page share a small synthetic three-wave data set:
+
+```julia
+using Siena, Random
+
+rng = Xoshiro(42)
+n = 15
+w1 = zeros(Int, n, n)
+for i in 1:n, j in 1:n
+    i != j && rand(rng) < 0.1 && (w1[i, j] = 1)
+end
+w2 = copy(w1); w3 = copy(w2)
+for w in (w2, w3), _ in 1:20
+    i, j = rand(rng, 1:n), rand(rng, 1:n)
+    i == j && continue
+    w[i, j] = 1 - w[i, j]
+end
+
+data = siena_data()
+add_nodeset!(data, NodeSet(n))
+add_dependent!(data, DependentNetwork(:net, [w1, w2, w3]))
+add_covariate!(data, ConstantCovariate(:gender, Float64.(rand(rng, 0:1, n))))
+
+effects = get_effects(data)
+include_effects!(effects, :net, [:outdegree, :recip])
+```
+
 ### The SienaAlgorithm Object
 
 Use [`siena_algorithm`](@ref) to create a configuration:
@@ -316,17 +343,19 @@ algorithm = siena_algorithm(
 3. **Use previous estimates as starting values**:
 
 ```julia
-# After first run: coef(result) is aligned with the free entries of the
-# parameter map (rates first, then objective effects)
-prev_estimates = coef(result)
+# The estimate vector must come from a run with the SAME effects object:
+# coef(...) is aligned with the free entries of the parameter map
+# (rates first, then objective effects)
+result_a = siena07(data, effects; algorithm=algorithm)
+prev_estimates = coef(result_a)
 
 pm = build_param_map(effects)
 for (i, entry) in enumerate(pm.free)
     entry.initial_value = prev_estimates[i]
 end
 
-# Re-run
-result2 = siena07(data, effects; algorithm=algorithm)
+# Re-run, starting from the previous estimates
+result_b = siena07(data, effects; algorithm=algorithm)
 ```
 
 4. **Decrease initial gain**:
@@ -431,14 +460,29 @@ end
 
 ### Conditional Estimation
 
-Conditional estimation fixes the number of network changes to the observed value:
+Conditional estimation (RSiena's `cond=TRUE`) conditions on the observed
+amount of change of one dependent variable: every simulated period runs
+until that variable's distance from the period-start observation reaches
+the observed distance, instead of until time 1 (Snijders 2001):
 
 ```julia
 algorithm = siena_algorithm(conditional=true, seed=42)
 result = siena07(data, effects; algorithm=algorithm)
 ```
 
-This is sometimes useful for small networks but is generally less recommended than unconditional estimation.
+The conditioned variable's basic rate parameters leave the moment
+equations (they are determined by the conditioning) and are estimated
+afterwards from the phase-3 stopping times; they are reported in
+`result.rate_estimates`. With several dependent variables, name the
+conditioning variable via `condvar` (RSiena's `condvarno`):
+
+<!-- skip-check -->
+```julia
+algorithm = siena_algorithm(conditional=true, condvar=:friendship)
+```
+
+Conditional estimation always uses the finite-difference derivative
+estimator (the trajectory score function assumes time-1 termination).
 
 ### The Derivative Matrix
 
@@ -457,7 +501,7 @@ You can use the estimated model to simulate networks:
 state, results = simulate_saom(data, result.effects, coef(result); seed=42)
 
 # Inspect the simulated final network
-sim_network = state.networks[:friendship]
+sim_network = state.networks[:net]
 println("Simulated density: ", sum(sim_network) / (size(sim_network, 1) * (size(sim_network, 1) - 1)))
 ```
 

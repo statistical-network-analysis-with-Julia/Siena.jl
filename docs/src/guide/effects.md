@@ -13,6 +13,7 @@ Effects are organized into four categories:
 
 All effects subtype [`AbstractEffect`](@ref) and implement the core interface:
 
+<!-- skip-check -->
 ```julia
 # Every effect must implement:
 compute_contribution(effect, state, data, actor, alter)  # Contribution to objective function
@@ -28,6 +29,40 @@ target_variable(effect)                                   # Which dependent vari
 Use [`get_effects`](@ref) to create a [`SienaEffects`](@ref) object populated with all available effects for your data:
 
 ```julia
+using Siena, Random
+
+# Small synthetic data set with two networks, a behavior, and covariates
+rng = Xoshiro(42)
+n = 15
+make_wave() = begin
+    w = zeros(Int, n, n)
+    for i in 1:n, j in 1:n
+        i != j && rand(rng) < 0.1 && (w[i, j] = 1)
+    end
+    w
+end
+perturb(w) = begin
+    w2 = copy(w)
+    for _ in 1:20
+        i, j = rand(rng, 1:n), rand(rng, 1:n)
+        i == j && continue
+        w2[i, j] = 1 - w2[i, j]
+    end
+    w2
+end
+f1 = make_wave(); f2 = perturb(f1); f3 = perturb(f2)
+n1 = make_wave(); n2 = perturb(n1); n3 = perturb(n2)
+b1 = rand(rng, 1:5, n); b2 = clamp.(b1 .+ rand(rng, -1:1, n), 1, 5)
+b3 = clamp.(b2 .+ rand(rng, -1:1, n), 1, 5)
+
+data = siena_data()
+add_nodeset!(data, NodeSet(n))
+add_dependent!(data, DependentNetwork(:friendship, [f1, f2, f3]))
+add_dependent!(data, DependentNetwork(:net, [n1, n2, n3]))
+add_dependent!(data, DependentBehavior(:behavior, [b1, b2, b3]))
+add_covariate!(data, ConstantCovariate(:gender, Float64.(rand(rng, 0:1, n))))
+add_covariate!(data, ConstantCovariate(:age, Float64.(rand(rng, 20:60, n))))
+
 effects = get_effects(data)
 ```
 
@@ -435,6 +470,7 @@ Each effect implements `compute_contribution(effect, state, data, actor, alter)`
 
 To create a new effect, define a struct and implement the required methods:
 
+<!-- skip-check -->
 ```julia
 struct MyCustomEffect <: NetworkEffect
     variable::Symbol

@@ -108,6 +108,9 @@ codes throws an `ArgumentError`.
 w1 = [0 1 11;
       0 0  0;
       10 0 0]           # tie 1->3 forced present, tie 3->1 impossible
+w2 = [0 0 11;
+      1 0  0;
+      10 0 0]
 dep = DependentNetwork(:net, [w1, w2])
 has_structural(dep)              # true
 is_structural_dyad(dep, 1, 1, 3) # true
@@ -129,7 +132,8 @@ Limitations vs RSiena: no correction is applied when a dyad's structural
 status changes between waves beyond using the period-start mask, and
 `siena_gof` statistics include structurally determined ties at their face
 values (identically for observed and simulated networks). Missing data
-(`NA` ties) and composition change remain unsupported in estimation.
+(`NA` ties) remains unsupported in estimation; composition change is
+supported (see below).
 
 ### Two-Mode Networks
 
@@ -330,6 +334,12 @@ data.n_waves         # Number of observation waves
 The [`NetworkState`](@ref) represents the current state of networks and behaviors during simulation. It is primarily used internally but can be useful for inspection:
 
 ```julia
+# Rebuild the full data object (the validation demo above replaced it)
+data = siena_data()
+add_nodeset!(data, NodeSet(30))
+add_dependent!(data, friendship)
+add_dependent!(data, drinking)
+
 state = NetworkState()
 initialize!(state, data, 1)  # Initialize from wave 1
 
@@ -355,20 +365,31 @@ initialize!(state, data, 2)
 
 ## Composition Change
 
-If actors join or leave the network between waves, use [`CompositionChange`](@ref):
+If actors join or leave the network between waves, use [`CompositionChange`](@ref)
+(RSiena's `sienaCompositionChange`):
 
 ```julia
 cc = CompositionChange()
 
-# Actor 5 leaves after wave 1
-add_change!(cc, 5, 1, :leave)
+# Actor 5 leaves at wave 2 (present at wave 1 only)
+add_change!(cc, 5, 2, :leave)
 
-# Actor 31 joins at wave 2
+# Actor 31 joins at wave 2 (absent at wave 1)
 add_change!(cc, 31, 2, :join)
 
 # Attach to data
-data.composition_change = cc
+add_composition_change!(data, cc)
+
+is_present(cc, 5, 1)   # true
+is_present(cc, 5, 2)   # false
 ```
+
+During estimation, actors are treated with RSiena's Method-of-Moments
+composition-change semantics: an actor contributes to a period only when
+present at **both** of its endpoint waves. Absent actors get no ministep
+opportunities, their dyads are excluded from the candidate sets, and their
+rows/columns are excluded from the target and simulated moment statistics
+and from the observed change (rate) distances.
 
 ## Data Validation Tips
 
@@ -380,6 +401,11 @@ data.composition_change = cc
 4. **Consistent size**: All wave matrices must have the same dimensions
 
 ```julia
+using LinearAlgebra: diagind
+
+waves = friendship.networks    # the wave matrices of the dependent above
+beh_waves = drinking.values    # the behavior waves
+
 # Validate network data
 for (w, net) in enumerate(waves)
     @assert size(net, 1) == size(net, 2) "Wave $w: matrix not square"
@@ -412,8 +438,10 @@ end
 # Check for NaN values
 @assert !any(isnan, gender.values) "Covariate has NaN values"
 
-# Verify dimensions match
-@assert length(gender.values) == n_actors(friendship)
+# Verify dimensions match the dependent's actor set (the toy `gender`
+# above was built for a 10-actor example, so build a matching one here)
+gender_full = constant_covariate(:gender, rand(0:1, n_actors(friendship)))
+@assert length(gender_full.values) == n_actors(friendship)
 ```
 
 ## Complete Data Setup Example

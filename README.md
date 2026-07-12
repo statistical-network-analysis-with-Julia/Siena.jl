@@ -28,10 +28,19 @@ The models assume that the network evolves through a continuous-time Markov chai
 
 ## Installation
 
+Requires Julia 1.12+. Siena.jl depends on the unregistered
+[Network.jl](https://github.com/statistical-network-analysis-with-Julia/Network.jl) package, which must be added first:
+
 ```julia
 using Pkg
+Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Network.jl")
 Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Siena.jl")
 ```
+
+For development, you can instead clone all ecosystem repositories side by
+side (the monorepo layout) and start Julia with the root workspace project
+(`julia --project=.` in the clone root): the `[sources]` path dependencies
+then wire the packages together with no ordered installs needed.
 
 ## Quick Start
 
@@ -74,7 +83,17 @@ types, so you can describe cross-sections with SNA.jl and model their dynamics
 with Siena.jl without manual matrix wrangling:
 
 ```julia
-using Network, SNA, Siena
+using Network, SNA, Siena, Random
+
+# (for the demo, write three synthetic waves to Pajek files first)
+rng = Xoshiro(1)
+for w in 1:3
+    net = network(20; directed=true)
+    for i in 1:20, j in 1:20
+        i != j && rand(rng) < 0.08 && add_edge!(net, i, j)
+    end
+    write_pajek(net, "wave$(w).net")
+end
 
 waves = [read_pajek("wave$(w).net") for w in 1:3]   # Network objects
 println(density.(waves))                            # describe with SNA
@@ -122,8 +141,10 @@ network per wave.
 
 | Function | Description | RSiena Equivalent |
 |----------|-------------|-------------------|
-| `siena07(data, effects)` | Estimate model | `siena07()` |
+| `fit_siena(data, effects)` | Estimate model (`siena07` is an alias) | `siena07()` |
 | `siena_algorithm(...)` | Configure algorithm | `sienaAlgorithmCreate()` |
+| `siena_algorithm(conditional=true)` | Conditional estimation | `sienaAlgorithmCreate(cond=TRUE)` |
+| `add_composition_change!(data, cc)` | Actors joining/leaving | `sienaCompositionChange()` |
 
 ### Goodness of Fit
 
@@ -177,14 +198,54 @@ Coded entries are decoded to their determined 0/1 face values, excluded from
 the ministep candidate sets during simulation (an actor can never toggle
 them), and excluded from target/simulated moment statistics and rate
 distances. See the data guide for details and limitations (missing `NA`
-ties and composition change remain unsupported in estimation, and no
-RSiena-style correction is applied when structural status changes between
-waves beyond using the period-start mask).
+ties remain unsupported in estimation, and no RSiena-style correction is
+applied when structural status changes between waves beyond using the
+period-start mask).
 
 ```julia
 w1 = [0 1 11; 0 0 0; 10 0 0]   # 1->3 forced present, 3->1 impossible
+w2 = [0 0 11; 1 0 0; 10 0 0]
 dep = DependentNetwork(:net, [w1, w2])
 has_structural(dep)             # true
+```
+
+## Conditional Estimation
+
+RSiena's `cond=TRUE` is supported: estimation conditions on the observed
+amount of change of one dependent variable, so every simulated period runs
+until that variable's distance from the period-start observation reaches
+the observed distance (instead of until time 1). The conditioned
+variable's basic rate parameters leave the moment equations and are
+estimated afterwards from the phase-3 stopping times; they are reported in
+`result.rate_estimates`.
+
+```julia
+alg = siena_algorithm(seed=42, conditional=true)   # condvar defaults to the
+result = fit_siena(data, effects; algorithm=alg)   # only dependent variable
+result.rate_estimates                              # conditional rate estimates
+```
+
+With several dependent variables, name the conditioning variable via
+`siena_algorithm(conditional=true, condvar=:friendship)` (RSiena's
+`condvarno`). Conditional estimation uses the finite-difference derivative
+estimator.
+
+## Composition Change
+
+Actors joining or leaving the network between waves (RSiena's
+`sienaCompositionChange`) are handled with the Method-of-Moments
+composition-change semantics: an actor contributes to a period only when
+present at both endpoint waves — absent actors get no ministep
+opportunities, their dyads leave the candidate sets, and their
+rows/columns are excluded from target and simulated moment statistics and
+from the observed rate distances.
+
+```julia
+cc = CompositionChange()
+add_change!(cc, 7, 2, :leave)    # actor 7 leaves at wave 2
+add_change!(cc, 12, 2, :join)    # actor 12 joins at wave 2
+add_composition_change!(data, cc)
+is_present(cc, 7, 3)             # false
 ```
 
 ## Model Theory
@@ -223,17 +284,18 @@ brute-force toggle of the actor evaluation function.
 
 ## Differences from RSiena
 
-- **Unconditional Method of Moments only**: conditional estimation (conditioning on
-  observed amounts of change), Maximum Likelihood, and Bayesian estimation are not
-  implemented.
+- **Method of Moments only**: unconditional (the default) and conditional
+  (`siena_algorithm(conditional=true)`) estimation are implemented; Maximum
+  Likelihood and Bayesian estimation are not.
 - **Endowment/creation effects** are supported in simulation but not yet in
   estimation; `include_interaction!` is not yet implemented.
 - **Derivative matrix** defaults to the score-function (Schweinberger–Snijders)
   estimator, with finite differences with common random numbers as a
   cross-check option.
 - **Structural zeros/ones** (10/11 coding) are supported in data, simulation, and
-  moment statistics (see above); missing data (`NA` ties) and composition change
-  are not yet handled in estimation.
+  moment statistics (see above), and composition change is handled with the
+  Method-of-Moments semantics; missing data (`NA` ties) is not yet handled in
+  estimation.
 - A few rarely used effects use simplified definitions; these are flagged in their
   docstrings (e.g. `balance`, `avAttHigher`/`avAttLower`).
 

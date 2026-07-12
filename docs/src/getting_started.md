@@ -8,7 +8,8 @@ Install Siena.jl from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/Statistical-network-analysis-with-Julia/Siena.jl")
+Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Network.jl")
+Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Siena.jl")
 ```
 
 ## Basic Workflow
@@ -429,7 +430,17 @@ describing cross-sections (e.g. with SNA.jl) to modeling dynamics without
 converting anything to matrices by hand:
 
 ```julia
-using Network, SNA, Siena
+using Network, SNA, Siena, Random
+
+# (write three synthetic waves to Pajek files for the demo)
+rng2 = Xoshiro(1)
+for w in 1:3
+    demo = network(20; directed=true)
+    for i in 1:20, j in 1:20
+        i != j && rand(rng2) < 0.08 && add_edge!(demo, i, j)
+    end
+    write_pajek(demo, "wave$(w).net")
+end
 
 # Wave observations as Network objects (from data import, SNA workflows, ...)
 waves = [read_pajek("wave$(w).net") for w in 1:3]
@@ -461,6 +472,7 @@ The conversion (via `Network.as_matrix`):
 
 Dyadic covariates accept networks too, optionally reading an edge attribute:
 
+<!-- skip-check -->
 ```julia
 # Binary adjacency of a fixed relation as a dyadic covariate
 add_covariate!(data, ConstantDyadCovariate(:advice, advice_net))

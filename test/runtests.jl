@@ -1048,9 +1048,19 @@ end
         @test size(ci) == (3, 2)
         @test all(ci[:, 1] .< result.estimates .< ci[:, 2])
 
-        # show() works
-        @test occursin("outdegree", sprint(show, result))
-        @test occursin("overall max convergence ratio", sprint(show, result))
+        # show() works, rendering the shared ecosystem coefficient table
+        # (Network.jl print_coeftable: z / Pr(>|z|) columns + signif codes)
+        out = sprint(show, result)
+        @test occursin("outdegree", out)
+        @test occursin("overall max convergence ratio", out)
+        @test occursin("Pr(>|z|)", out)
+        @test occursin("Signif. codes", out)
+
+        # fit_siena is the standardized entry point; siena07 is the
+        # RSiena-name alias and gives bitwise-identical results
+        result_fs = fit_siena(data, effects; algorithm=alg)
+        @test result_fs.estimates == result.estimates
+        @test result_fs.standard_errors == result.standard_errors
 
         # The finite-difference cross-check path still runs end-to-end and, given
         # enough derivative simulations, gives comparable standard errors (with few
@@ -1077,6 +1087,26 @@ end
         @test sum(g2.observed) == binomial(n, 3)
         @test all(vec(sum(g2.simulated, dims=2)) .== binomial(n, 3))
         @test occursin("p-value", sprint(show, g2))
+
+        # RSiena-style detail converts to the ecosystem-wide GOFResult
+        gc = GOFResult(g2)
+        @test gc isa GOFResult
+        @test gc.p_overall == g2.p_overall
+        @test occursin("Goodness-of-fit", sprint(show, gc))
+
+        # gof() is a method of the ONE shared Network.jl generic and
+        # returns the ecosystem-wide GOFResult directly
+        @test Siena.gof === Network.gof
+        gr = gof(result, data, IndegreeDistribution(:friendship);
+                 n_sims=20, seed=5)
+        @test gr isa GOFResult
+        @test Network.n_simulations(gr) == 20
+        @test 0.0 < gr.p_overall <= 1.0
+        gv = gof(result, data,
+                 [IndegreeDistribution(:friendship),
+                  OutdegreeDistribution(:friendship)]; n_sims=10, seed=6)
+        @test length(gv.statistics) == 2
+        @test occursin("outdegree distribution", sprint(show, gv))
     end
 
     @testset "Conditional estimation (siena07)" begin

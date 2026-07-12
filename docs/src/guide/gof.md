@@ -28,6 +28,33 @@ A good model should reproduce network features that were not explicitly modeled.
 ### Basic Usage
 
 ```julia
+using Siena, Random, Statistics
+
+# Small synthetic three-wave data set
+rng = Xoshiro(42)
+n = 15
+w1 = zeros(Int, n, n)
+for i in 1:n, j in 1:n
+    i != j && rand(rng) < 0.1 && (w1[i, j] = 1)
+end
+w2 = copy(w1); w3 = copy(w2)
+for w in (w2, w3), _ in 1:20
+    i, j = rand(rng, 1:n), rand(rng, 1:n)
+    i == j && continue
+    w[i, j] = 1 - w[i, j]
+end
+b1 = rand(rng, 1:5, n)
+b2 = clamp.(b1 .+ rand(rng, -1:1, n), 1, 5)
+b3 = clamp.(b2 .+ rand(rng, -1:1, n), 1, 5)
+
+data = siena_data()
+add_nodeset!(data, NodeSet(n))
+add_dependent!(data, DependentNetwork(:friendship, [w1, w2, w3]))
+add_dependent!(data, DependentBehavior(:drinking, [b1, b2, b3]))
+effects = get_effects(data)
+include_effects!(effects, :friendship, [:outdegree, :recip])
+include_effects!(effects, :drinking, [:linear, :quad])
+
 # After estimation
 result = siena07(data, effects; algorithm=siena_algorithm(seed=42))
 
@@ -258,6 +285,7 @@ p_vals = gof.p_values
 using Siena
 using Random
 using Statistics
+using LinearAlgebra: diagind
 
 Random.seed!(42)
 
