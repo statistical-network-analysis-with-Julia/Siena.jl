@@ -20,7 +20,7 @@ Siena.jl is a Julia port of [RSiena](https://github.com/stocnet/rsiena) for stat
 
 - **`NodeSet`** -- set of actors/nodes with optional names
 - **`SienaData`** -- top-level container holding nodesets, dependents, and covariates (mutable, built incrementally via `add_nodeset!`, `add_dependent!`, `add_covariate!`)
-- **`AbstractDependent`** with subtypes `DependentNetwork` (adjacency matrices per wave) and `DependentBehavior` (integer vectors per wave)
+- **`AbstractDependent`** with subtypes `DependentNetwork` (adjacency matrices per wave) and `DependentBehavior` (integer vectors per wave). `DependentNetwork` accepts RSiena-style structural codes in the matrices (default `10` = structural zero, `11` = structural one; configurable via `structural_zero`/`structural_one`, other values throw): coded entries are decoded to 0/1 face values and recorded in per-wave `structural::Vector{BitMatrix}` masks (`has_structural`, `is_structural_dyad`, `n_structural_dyads`). Structurally determined dyads are excluded from ministep candidate sets (period-start mask), from target/simulated moment statistics (`_zero_structural!` in estimation.jl), and from rate distances
 - **`AbstractCovariate`** with subtypes `ConstantCovariate`, `VaryingCovariate`, `ConstantDyadCovariate`, `VaryingDyadCovariate`
 - **`NetworkState`** -- mutable simulation state holding current network matrices and behavior vectors
 - **`CompositionChange`** -- tracks actors joining/leaving
@@ -39,14 +39,18 @@ Abstract hierarchy: `AbstractEffect` -> `NetworkEffect`, `BehaviorEffect`, `Rate
 
 Simulates the CTMC: `simulate_saom` -> `simulate_period!` -> mini-steps (network or behavior). Choice probabilities use multinomial logit over the objective function. Rate functions control actor selection and waiting times.
 
+Hot-path design: the included objective effects are snapshotted once per simulation into a tuple-backed `ObjectiveEffectSet` (mirroring `ERGM.TermSet`), so the per-candidate contribution loop is statically dispatched instead of filtering/dispatching through the effects table per ministep. Per-actor rates are cached across ministeps and recomputed only for variables with state-dependent (non-basic) rate effects after a real state change. `ScoreAccumulator` optionally collects the trajectory score function for the score-based derivative estimator.
+
 ### Estimation (`src/estimation.jl`)
 
 Three-phase Robbins-Monro algorithm in `siena07`:
 1. **Phase 1** -- rough parameter updates with identity derivative matrix
 2. **Phase 2** -- subphases with estimated derivative matrix and decaying gain
-3. **Phase 3** -- fixed parameters, collecting simulations for SE estimation via `D^{-1} Sigma D^{-T}`
+3. **Phase 3** -- fixed parameters, collecting simulations for SE estimation via `D^{-1} Sigma D^{-T}` (derivative `D` from the score-function estimator by default, or finite differences with common random numbers)
 
-Result type `SienaResult` provides `coef`, `stderror`, `vcov`, `confint`.
+Phase-3 simulations and derivative estimation are embarrassingly parallel and run under `Threads.@threads`: seeds are pre-drawn from the algorithm RNG in serial order and each simulation runs on its own seeded RNG writing to its own result slot, so results are bitwise identical regardless of `JULIA_NUM_THREADS`.
+
+Result type `SienaResult` provides `coef`, `stderror`, `vcov`, `confint` (StatsAPI methods).
 
 ### Algorithm (`src/algorithm.jl`)
 
@@ -59,6 +63,10 @@ Result type `SienaResult` provides `coef`, `stderror`, `vcov`, `confint`.
 ### RSiena-Compatible API (`src/Siena.jl`)
 
 The main module file defines convenience constructors mirroring RSiena function names: `siena_data()`, `siena_dependent()`, `constant_covariate()`, `get_effects()`, `include_effects!()`, `siena07()`.
+
+### Network.jl Bridge (`ext/SienaNetworkExt.jl`)
+
+Package extension on the weak dependency Network.jl (`[weakdeps]`/`[extensions]` in Project.toml; Siena keeps zero hard network-stack deps). When Network.jl is loaded it adds methods so `DependentNetwork`/`siena_dependent` accept a `Vector` of `Network` (or `BipartiteNetwork`) observations — converted via `Network.as_matrix`, preserving directedness, self-loop allowance, and one-/two-mode type, and validating equal node sets (vertex counts, mode sizes, `:vertex_names`) and directedness across waves — and so `ConstantDyadCovariate`/`VaryingDyadCovariate` (plus their snake_case wrappers) accept networks, optionally reading an edge attribute via `attr=`. Tests load Network (test target) and cover the bridge end-to-end, including a `siena07` fit from `Network` waves.
 
 ### Design Patterns
 
@@ -75,7 +83,8 @@ The main module file defines convenience constructors mirroring RSiena function 
 - **SparseArrays** -- sparse matrix support
 - **StatsBase** -- statistical utilities
 - **Statistics** -- `mean`, `std`, `cov`
-- Requires Julia >= 1.9
+- **Network** (weak dependency) -- activates the `SienaNetworkExt` extension for building Siena data types from `Network` objects
+- Requires Julia >= 1.12
 
 ## Conventions
 

@@ -19,7 +19,7 @@ Abstract type for two-mode network effects.
 abstract type TwoModeEffect <: NetworkEffect end
 
 # Number of shared events between actors i and o, optionally excluding one event.
-function _shared_events(net::Matrix{Int}, i::Int, o::Int; exclude::Int=0)
+function _shared_events(net::AbstractMatrix{Int}, i::Int, o::Int; exclude::Int=0)
     shared = 0
     for e in 1:size(net, 2)
         e == exclude && continue

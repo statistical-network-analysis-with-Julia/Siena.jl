@@ -53,6 +53,14 @@ n_waves
 n_actors
 ```
 
+### Structural Zeros and Ones
+
+```@docs
+has_structural
+is_structural_dyad
+n_structural_dyads
+```
+
 ## Covariates
 
 ### AbstractCovariate

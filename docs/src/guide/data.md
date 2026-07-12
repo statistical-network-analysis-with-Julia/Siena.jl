@@ -92,6 +92,44 @@ friendship.type       # :onemode (default)
 | `allow_self_loops` | `Bool` | `false` | Whether self-ties are allowed |
 | `nodeset1` | `Symbol` | `:actors` | ID of the row node set |
 | `nodeset2` | `Symbol` | `nothing` | ID of the column node set (bipartite) |
+| `structural_zero` | `Int` | `10` | Code marking a structurally absent tie |
+| `structural_one` | `Int` | `11` | Code marking a structurally present tie |
+
+### Structural Zeros and Ones (10/11 Coding)
+
+As in RSiena, adjacency matrices may contain the codes `10` (**structural
+zero** — the tie is impossible, e.g. between actors who never overlapped)
+and `11` (**structural one** — the tie is forced, e.g. a formal
+relationship). The codes are configurable via `structural_zero` /
+`structural_one` and are validated: any entry other than 0, 1, or the two
+codes throws an `ArgumentError`.
+
+```julia
+w1 = [0 1 11;
+      0 0  0;
+      10 0 0]           # tie 1->3 forced present, tie 3->1 impossible
+dep = DependentNetwork(:net, [w1, w2])
+has_structural(dep)              # true
+is_structural_dyad(dep, 1, 1, 3) # true
+dep.networks[1]                  # decoded 0/1 face values (10 -> 0, 11 -> 1)
+```
+
+Semantics (first-order port of RSiena's treatment):
+
+- **Simulation**: during the period starting at wave `m`, dyads structurally
+  determined at wave `m` are excluded from the ministep candidate sets — an
+  actor can never toggle them, so simulated networks keep the determined
+  values.
+- **Estimation**: structurally determined entries are excluded from the
+  target and simulated moment statistics (zeroed under the period-start
+  mask on both sides of the moment equation), and observed changes at those
+  entries do not count toward rate statistics.
+
+Limitations vs RSiena: no correction is applied when a dyad's structural
+status changes between waves beyond using the period-start mask, and
+`siena_gof` statistics include structurally determined ties at their face
+values (identically for observed and simulated networks). Missing data
+(`NA` ties) and composition change remain unsupported in estimation.
 
 ### Two-Mode Networks
 

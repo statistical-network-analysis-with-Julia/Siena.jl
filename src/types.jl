@@ -51,11 +51,40 @@ A dependent network variable observed at multiple time points.
 # Fields
 - `name::Symbol`: Variable name
 - `networks::Vector{Matrix{Int}}`: Network adjacency matrices at each observation
+  (0/1 face values; structural codes are decoded on construction)
 - `type::Symbol`: Network type (:onemode, :twomode, :bipartite)
 - `directed::Bool`: Whether the network is directed
 - `allow_self_loops::Bool`: Whether self-loops are allowed
 - `nodeset1::Symbol`: ID of the first node set
 - `nodeset2::Union{Symbol, Nothing}`: ID of the second node set (for bipartite)
+- `structural::Vector{BitMatrix}`: Per-wave masks of structurally determined
+  dyads (see below); empty when the data contain no structural codes
+
+# Structural zeros and ones (RSiena 10/11 coding)
+Adjacency matrices may contain RSiena-style structural codes alongside 0/1:
+by default `10` marks a **structural zero** (the tie is structurally absent
+— impossible, e.g. between actors who never met) and `11` a **structural
+one** (the tie is structurally present — forced, e.g. formal ties). The
+codes are configurable via the `structural_zero`/`structural_one` keywords.
+On construction each coded entry is decoded to its determined value (10 → 0,
+11 → 1) in `networks`, and its position is recorded in the per-wave
+`structural` mask. Any entry other than 0, 1, or the two codes throws an
+`ArgumentError`.
+
+Structurally determined dyads behave as in RSiena's first-order semantics:
+they are excluded from the candidate sets of ministep simulation for the
+period whose *start* wave marks them (an actor can never toggle them), they
+are excluded from the target and simulated moment statistics, and they do
+not count toward observed change in rate statistics. Unlike RSiena, no
+correction is applied when a dyad's structural status changes between
+waves beyond using the period-start mask.
+
+# Interoperability
+When Network.jl is loaded, the `SienaNetworkExt` package extension adds a
+constructor taking a `Vector` of `Network` objects (one per wave); adjacency
+matrices are extracted with `Network.as_matrix`, directedness and self-loop
+settings are taken from the networks, and the waves are validated to share
+the same node set. See the extension's docstring for details.
 """
 mutable struct DependentNetwork <: AbstractDependent
     name::Symbol
@@ -65,6 +94,7 @@ mutable struct DependentNetwork <: AbstractDependent
     allow_self_loops::Bool
     nodeset1::Symbol
     nodeset2::Union{Symbol, Nothing}
+    structural::Vector{BitMatrix}
 
     function DependentNetwork(
         name::Symbol,
@@ -73,7 +103,9 @@ mutable struct DependentNetwork <: AbstractDependent
         directed::Bool=true,
         allow_self_loops::Bool=false,
         nodeset1::Symbol=:actors,
-        nodeset2::Union{Symbol, Nothing}=nothing
+        nodeset2::Union{Symbol, Nothing}=nothing,
+        structural_zero::Int=10,
+        structural_one::Int=11
     )
         # Validate
         if isempty(networks)
@@ -82,10 +114,75 @@ mutable struct DependentNetwork <: AbstractDependent
         if type == :onemode && size(networks[1], 1) != size(networks[1], 2)
             throw(ArgumentError("One-mode networks must be square"))
         end
-        # Convert to Int matrices
+        if structural_zero == structural_one ||
+           structural_zero in (0, 1) || structural_one in (0, 1)
+            throw(ArgumentError("structural codes must be distinct and different " *
+                                "from the tie values 0 and 1 (got " *
+                                "structural_zero=$structural_zero, " *
+                                "structural_one=$structural_one)"))
+        end
+        # Convert to Int matrices, validate codes, and decode structural
+        # entries (structural_zero -> 0, structural_one -> 1) into per-wave
+        # masks of structurally determined dyads
         int_networks = [Matrix{Int}(net) for net in networks]
-        new(name, int_networks, type, directed, allow_self_loops, nodeset1, nodeset2)
+        masks = [falses(size(m)) for m in int_networks]
+        any_structural = false
+        for (w, m) in enumerate(int_networks)
+            for idx in eachindex(m)
+                v = m[idx]
+                if v == structural_zero
+                    m[idx] = 0
+                    masks[w][idx] = true
+                    any_structural = true
+                elseif v == structural_one
+                    m[idx] = 1
+                    masks[w][idx] = true
+                    any_structural = true
+                elseif v != 0 && v != 1
+                    throw(ArgumentError("invalid tie value $v in wave $w of " *
+                                        "dependent network :$name: entries must be " *
+                                        "0, 1, $structural_zero (structural zero), " *
+                                        "or $structural_one (structural one)"))
+                end
+            end
+        end
+        structural = any_structural ? masks : BitMatrix[]
+        new(name, int_networks, type, directed, allow_self_loops, nodeset1,
+            nodeset2, structural)
     end
+end
+
+"""
+    has_structural(dep::DependentNetwork) -> Bool
+
+Whether the dependent network contains any structurally determined dyads
+(structural zeros/ones; see [`DependentNetwork`](@ref)).
+"""
+has_structural(dep::DependentNetwork) = !isempty(dep.structural)
+
+"""
+    is_structural_dyad(dep::DependentNetwork, wave::Int, i::Int, j::Int) -> Bool
+
+Whether the dyad `(i, j)` is structurally determined (structural zero or
+one) at observation `wave`. Its determined face value is
+`dep.networks[wave][i, j]`.
+"""
+is_structural_dyad(dep::DependentNetwork, wave::Int, i::Int, j::Int) =
+    !isempty(dep.structural) && dep.structural[wave][i, j]
+
+"""
+    n_structural_dyads(dep::DependentNetwork, wave::Int) -> Int
+
+Number of structurally determined dyads at observation `wave`.
+"""
+n_structural_dyads(dep::DependentNetwork, wave::Int) =
+    isempty(dep.structural) ? 0 : count(dep.structural[wave])
+
+# Structural mask relevant to a simulation state: the mask of the state's
+# period-start wave, or `nothing` when the variable has no structural dyads.
+@inline function _structural_mask(dep::DependentNetwork, period::Int)
+    isempty(dep.structural) && return nothing
+    return dep.structural[period]
 end
 
 """
@@ -351,6 +448,26 @@ function add_change!(cc::CompositionChange, actor::Int, wave::Int, action::Symbo
     push!(cc.changes, (actor, wave, action))
 end
 
+"""
+    is_present(cc::CompositionChange, actor::Int, wave::Int) -> Bool
+
+Whether an actor is present at an observation wave. An actor with a `:join`
+event at wave `w` is present from wave `w` onward (and absent before its
+first event); a `:leave` event at wave `w` makes the actor absent from wave
+`w` onward. Actors without composition-change events are always present.
+"""
+function is_present(cc::CompositionChange, actor::Int, wave::Int)
+    events = [(w, action) for (a, w, action) in cc.changes if a == actor]
+    isempty(events) && return true
+    sort!(events; by=first)
+    present = events[1][2] != :join   # joiners start absent, leavers start present
+    for (w, action) in events
+        w <= wave || break
+        present = action == :join
+    end
+    return present
+end
+
 #==============================================================================#
 # Siena Data Container
 #==============================================================================#
@@ -421,6 +538,49 @@ function add_covariate!(data::SienaData, cov::AbstractCovariate)
     data
 end
 
+"""
+    add_composition_change!(data::SienaData, cc::CompositionChange)
+
+Attach composition-change information (actors joining/leaving; see
+[`CompositionChange`](@ref)) to the data. Equivalent to supplying a
+`sienaCompositionChange` object in RSiena.
+
+During estimation, actors are treated with RSiena's method-of-moments
+composition-change semantics: an actor contributes to a period only when
+present at both of its endpoint waves. Absent actors get no ministep
+opportunities, their dyads are excluded from the candidate sets, and their
+rows/columns are excluded from the target and simulated moment statistics
+and from the observed change (rate) distances.
+"""
+function add_composition_change!(data::SienaData, cc::CompositionChange)
+    data.composition_change = cc
+    data
+end
+
+# Number of actors in the primary node set.
+function _actor_count(data::SienaData)
+    haskey(data.nodesets, :actors) && return length(data.nodesets[:actors])
+    for dep in values(data.dependents)
+        return n_actors(dep)
+    end
+    throw(ArgumentError("cannot determine the number of actors: add a node set " *
+                        "or a dependent variable first"))
+end
+
+# Per-period activity mask from the composition changes: `active[i]` is true iff
+# actor i is present at both endpoint waves of the period. Returns `nothing` when
+# the data have no composition changes.
+function _activity_mask(data::SienaData, period::Int)
+    cc = data.composition_change
+    (cc === nothing || isempty(cc.changes)) && return nothing
+    n = _actor_count(data)
+    active = trues(n)
+    for i in 1:n
+        active[i] = is_present(cc, i, period) && is_present(cc, i, period + 1)
+    end
+    return active
+end
+
 function Base.show(io::IO, data::SienaData)
     print(io, "SienaData(")
     print(io, "nodesets=$(length(data.nodesets)), ")
@@ -434,25 +594,85 @@ end
 #==============================================================================#
 
 """
+    StateNetwork <: AbstractMatrix{Int}
+
+Simulation-state representation of one network variable: a compact
+`Matrix{Int8}` of the 0/1 tie values (structural codes are decoded on data
+construction, so the state never holds values beyond 0/1) plus incrementally
+maintained out-/indegree vectors.
+
+Indexing reads and writes behave exactly like a 0/1 `Matrix{Int}`; every
+`setindex!` updates the degree vectors, so `_row_sum`/`_col_sum` (the degree
+lookups of the effect hot loops) are O(1) instead of O(n) scans. Writing a
+value other than 0 or 1 throws.
+"""
+struct StateNetwork <: AbstractMatrix{Int}
+    m::Matrix{Int8}
+    outdeg::Vector{Int}
+    indeg::Vector{Int}
+end
+
+function StateNetwork(m::AbstractMatrix{<:Integer})
+    all(v -> v == 0 || v == 1, m) ||
+        throw(ArgumentError("state networks hold 0/1 tie values only"))
+    m8 = Matrix{Int8}(m)
+    return StateNetwork(m8, vec(sum(Int, m8, dims=2)), vec(sum(Int, m8, dims=1)))
+end
+
+Base.convert(::Type{StateNetwork}, m::AbstractMatrix) = StateNetwork(m)
+
+Base.size(sn::StateNetwork) = size(sn.m)
+Base.IndexStyle(::Type{StateNetwork}) = IndexCartesian()
+
+Base.@propagate_inbounds Base.getindex(sn::StateNetwork, i::Int, j::Int) =
+    Int(sn.m[i, j])
+
+Base.@propagate_inbounds function Base.setindex!(sn::StateNetwork, v, i::Int, j::Int)
+    (v == 0 || v == 1) ||
+        throw(ArgumentError("state networks hold 0/1 tie values only (got $v)"))
+    b = Int8(v)
+    old = sn.m[i, j]
+    if b != old
+        sn.m[i, j] = b
+        d = Int(b) - Int(old)
+        sn.outdeg[i] += d
+        sn.indeg[j] += d
+    end
+    return sn
+end
+
+# Note: no `Base.copy` override — generic AbstractArray `copy` yields a plain
+# `Matrix{Int}`, which is what callers extracting a wave matrix expect.
+_copy_state_network(sn::StateNetwork) =
+    StateNetwork(copy(sn.m), copy(sn.outdeg), copy(sn.indeg))
+
+"""
     NetworkState
 
 Mutable state of networks and behaviors during simulation.
 
 # Fields
-- `networks::Dict{Symbol, Matrix{Int}}`: Current network states
+- `networks::Dict{Symbol, StateNetwork}`: Current network states (bit-packed
+  0/1 matrices with incrementally maintained degree vectors; assigning a plain
+  0/1 integer matrix converts automatically — see [`StateNetwork`](@ref))
 - `behaviors::Dict{Symbol, Vector{Int}}`: Current behavior states
 - `time::Float64`: Current simulation time within period
 - `period::Int`: Current period (index of the starting wave); used to select the
   values of varying covariates
+- `active::Union{Nothing, BitVector}`: Per-actor activity mask of the current
+  period when the data have composition changes (`nothing` otherwise); inactive
+  actors take no ministeps and their dyads are not candidates
 """
 mutable struct NetworkState
-    networks::Dict{Symbol, Matrix{Int}}
+    networks::Dict{Symbol, StateNetwork}
     behaviors::Dict{Symbol, Vector{Int}}
     time::Float64
     period::Int
+    active::Union{Nothing, BitVector}
 
     function NetworkState()
-        new(Dict{Symbol, Matrix{Int}}(), Dict{Symbol, Vector{Int}}(), 0.0, 1)
+        new(Dict{Symbol, StateNetwork}(), Dict{Symbol, Vector{Int}}(), 0.0, 1,
+            nothing)
     end
 end
 
@@ -466,9 +686,10 @@ when initializing at the *end* observation of a period).
 function initialize!(state::NetworkState, data::SienaData, wave::Int; period::Int=wave)
     state.time = 0.0
     state.period = min(period, max(data.n_waves - 1, 1))
+    state.active = _activity_mask(data, state.period)
     for (name, dep) in data.dependents
         if dep isa DependentNetwork
-            state.networks[name] = copy(dep.networks[wave])
+            state.networks[name] = StateNetwork(dep.networks[wave])
         elseif dep isa DependentBehavior
             state.behaviors[name] = copy(dep.values[wave])
         end
@@ -484,12 +705,13 @@ Return an independent copy of the current state.
 function snapshot(state::NetworkState)
     s = NetworkState()
     for (k, v) in state.networks
-        s.networks[k] = copy(v)
+        s.networks[k] = _copy_state_network(v)
     end
     for (k, v) in state.behaviors
         s.behaviors[k] = copy(v)
     end
     s.time = state.time
     s.period = state.period
+    s.active = state.active === nothing ? nothing : copy(state.active)
     s
 end

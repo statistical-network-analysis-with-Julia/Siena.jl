@@ -49,6 +49,9 @@ SAOMs are widely used in:
 - **RSiena-compatible API**: Familiar function names (`siena07`, `get_effects`, `include_effects!`)
 - **Flexible data structures**: Support for one-mode, two-mode, and multivariate networks
 - **Composition change**: Handle actors entering or leaving the network
+- **Network.jl bridge**: With Network.jl loaded, `DependentNetwork` and the dyadic
+  covariates accept `Network` objects directly (package extension, no hard
+  dependency) — see [Using Network.jl objects](getting_started.md#Using-Network.jl-objects)
 
 ## Installation
 
@@ -68,6 +71,7 @@ Pkg.develop(path="/path/to/Siena.jl")
 
 ```julia
 using Siena
+using LinearAlgebra: diagind
 
 # Step 1: Create data
 data = siena_data()

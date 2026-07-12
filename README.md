@@ -64,6 +64,38 @@ result = siena07(data, effects; algorithm=alg)
 gof_indeg = siena_gof_indegree(result, data, :friendship; n_sims=100)
 ```
 
+## Interoperability with Network.jl
+
+Siena.jl keeps zero hard dependencies on the network stack, but a package
+extension (`SienaNetworkExt`) activates automatically when
+[Network.jl](https://github.com/statistical-network-analysis-with-Julia/Network.jl)
+is loaded. It converts panels of `Network` objects straight into Siena's data
+types, so you can describe cross-sections with SNA.jl and model their dynamics
+with Siena.jl without manual matrix wrangling:
+
+```julia
+using Network, SNA, Siena
+
+waves = [read_pajek("wave$(w).net") for w in 1:3]   # Network objects
+println(density.(waves))                            # describe with SNA
+
+data = siena_data()
+add_nodeset!(data, NodeSet(nv(waves[1])))
+add_dependent!(data, DependentNetwork(:friendship, waves))  # no matrices needed
+
+effects = get_effects(data)
+include_effects!(effects, :friendship, [:outdegree, :recip, :transTrip])
+result = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+```
+
+The conversion preserves directedness (undirected networks yield symmetric
+matrices and `directed=false`), maps two-mode networks to `:twomode`
+dependent variables, and validates that all waves share the same node set
+(vertex counts, mode sizes, and `:vertex_names` where present). Dyadic
+covariates accept networks too — `ConstantDyadCovariate(:prox, net;
+attr=:distance)` reads an edge attribute, and `VaryingDyadCovariate` takes one
+network per wave.
+
 ## Key Functions
 
 ### Data Preparation
@@ -135,6 +167,26 @@ gof_indeg = siena_gof_indegree(result, data, :friendship; n_sims=100)
 - `indeg` - Indegree effect on behavior
 - `outdeg` - Outdegree effect on behavior
 
+## Structural Zeros and Ones
+
+RSiena's 10/11 coding is supported: in the wave adjacency matrices, `10`
+marks a **structural zero** (tie structurally impossible) and `11` a
+**structural one** (tie structurally forced); codes are configurable via
+`DependentNetwork(...; structural_zero=, structural_one=)` and validated.
+Coded entries are decoded to their determined 0/1 face values, excluded from
+the ministep candidate sets during simulation (an actor can never toggle
+them), and excluded from target/simulated moment statistics and rate
+distances. See the data guide for details and limitations (missing `NA`
+ties and composition change remain unsupported in estimation, and no
+RSiena-style correction is applied when structural status changes between
+waves beyond using the period-start mask).
+
+```julia
+w1 = [0 1 11; 0 0 0; 10 0 0]   # 1->3 forced present, 3->1 impossible
+dep = DependentNetwork(:net, [w1, w2])
+has_structural(dep)             # true
+```
+
 ## Model Theory
 
 SAOMs model network change as a sequence of probabilistic micro-steps:
@@ -176,10 +228,12 @@ brute-force toggle of the actor evaluation function.
   implemented.
 - **Endowment/creation effects** are supported in simulation but not yet in
   estimation; `include_interaction!` is not yet implemented.
-- **Derivative matrix** is estimated by finite differences with common random
-  numbers rather than RSiena's score-function method.
-- Missing data, composition change, and structural zeros/ones are not yet handled
-  in estimation.
+- **Derivative matrix** defaults to the score-function (Schweinberger–Snijders)
+  estimator, with finite differences with common random numbers as a
+  cross-check option.
+- **Structural zeros/ones** (10/11 coding) are supported in data, simulation, and
+  moment statistics (see above); missing data (`NA` ties) and composition change
+  are not yet handled in estimation.
 - A few rarely used effects use simplified definitions; these are flagged in their
   docstrings (e.g. `balance`, `avAttHigher`/`avAttLower`).
 

@@ -18,15 +18,27 @@ Configuration for the SAOM estimation algorithm.
 - `initial_gain::Float64`: Initial gain parameter (a)
 - `min_gain::Float64`: Minimum gain parameter
 - `max_iterations::Int`: Maximum total iterations
-- `convergence_threshold::Float64`: Convergence criterion (t-ratio threshold)
+- `convergence_threshold::Float64`: Per-parameter convergence criterion — every
+  convergence t-ratio must satisfy |t| < threshold (RSiena publication standard: 0.1)
 - `seed::Union{Int, Nothing}`: Random seed
 - `model_type::Symbol`: Model type (:standard, :behavioronly, :networkonly)
-- `conditional::Bool`: Conditional estimation
+- `conditional::Bool`: Conditional estimation (RSiena's `cond`): condition every
+  simulated period on the observed amount of change of one dependent variable
+  instead of on the unit time length (see [`siena07`](@ref))
+- `condvar::Union{Symbol, Nothing}`: Name of the conditioning variable for
+  conditional estimation (RSiena's `condvarno`); `nothing` (the default) uses
+  the only dependent variable and errors if there are several
 - `n_simulations::Int`: Number of simulations per iteration
 - `parallel::Bool`: Use parallel processing
 - `verbose::Bool`: Print progress
 - `derivative_sims::Int`: Simulations per parameter for finite-difference derivative
   estimation (with common random numbers)
+- `overall_convergence_threshold::Float64`: Threshold for the overall maximum
+  convergence ratio `tconv.max` (RSiena standard: 0.25)
+- `derivative_method::Symbol`: Estimator for the phase-3 derivative matrix used for
+  standard errors — `:score` (score-function / likelihood-ratio estimator over all
+  phase-3 simulations, as in RSiena) or `:finite_difference` (forward differences
+  with common random numbers, for cross-checking)
 """
 mutable struct SienaAlgorithm
     n_subphases::Int
@@ -39,10 +51,13 @@ mutable struct SienaAlgorithm
     seed::Union{Int, Nothing}
     model_type::Symbol
     conditional::Bool
+    condvar::Union{Symbol, Nothing}
     n_simulations::Int
     parallel::Bool
     verbose::Bool
     derivative_sims::Int
+    overall_convergence_threshold::Float64
+    derivative_method::Symbol
 
     function SienaAlgorithm(;
         n_subphases::Int=4,
@@ -51,22 +66,28 @@ mutable struct SienaAlgorithm
         initial_gain::Float64=0.2,
         min_gain::Float64=0.0005,
         max_iterations::Int=50,
-        convergence_threshold::Float64=0.25,
+        convergence_threshold::Float64=0.1,
         seed::Union{Int, Nothing}=nothing,
         model_type::Symbol=:standard,
         conditional::Bool=false,
+        condvar::Union{Symbol, Nothing}=nothing,
         n_simulations::Int=1,
         parallel::Bool=false,
         verbose::Bool=true,
-        derivative_sims::Int=30
+        derivative_sims::Int=30,
+        overall_convergence_threshold::Float64=0.25,
+        derivative_method::Symbol=:score
     )
         if model_type ∉ (:standard, :behavioronly, :networkonly)
             throw(ArgumentError("model_type must be :standard, :behavioronly, or :networkonly"))
         end
+        if derivative_method ∉ (:score, :finite_difference)
+            throw(ArgumentError("derivative_method must be :score or :finite_difference"))
+        end
         new(n_subphases, phase1_iterations, phase3_iterations,
             initial_gain, min_gain, max_iterations, convergence_threshold,
-            seed, model_type, conditional, n_simulations, parallel, verbose,
-            derivative_sims)
+            seed, model_type, conditional, condvar, n_simulations, parallel, verbose,
+            derivative_sims, overall_convergence_threshold, derivative_method)
     end
 end
 
@@ -187,14 +208,23 @@ end
     ConvergenceStats
 
 Statistics for convergence checking.
+
+# Fields
+- `t_ratios::Vector{Float64}`: per-parameter convergence t-ratios
+- `max_t_ratio::Float64`: maximum absolute t-ratio
+- `overall_convergence::Float64`: root-mean-square of the t-ratios
+- `tconv_max::Float64`: overall maximum convergence ratio (RSiena's `tconv.max`) —
+  the maximum convergence t-ratio over all linear combinations of the statistics,
+  ``\\sqrt{\\bar e' \\Sigma^{-1} \\bar e}``
 """
 mutable struct ConvergenceStats
     t_ratios::Vector{Float64}
     max_t_ratio::Float64
     overall_convergence::Float64
+    tconv_max::Float64
 
     function ConvergenceStats(n_params::Int)
-        new(zeros(n_params), Inf, Inf)
+        new(zeros(n_params), Inf, Inf, Inf)
     end
 end
 
@@ -222,11 +252,20 @@ end
 
 """
     is_converged(cs::ConvergenceStats, threshold::Float64)
+    is_converged(cs::ConvergenceStats, threshold::Float64, overall_threshold::Float64)
 
-Check if the algorithm has converged.
+Check if the algorithm has converged: every per-parameter |t-ratio| must be below
+`threshold`, and — in the three-argument form (the RSiena publication standard:
+0.1 and 0.25) — the overall maximum convergence ratio `tconv.max` must be below
+`overall_threshold`.
 """
 function is_converged(cs::ConvergenceStats, threshold::Float64)
     return cs.max_t_ratio < threshold
+end
+
+function is_converged(cs::ConvergenceStats, threshold::Float64,
+                      overall_threshold::Float64)
+    return cs.max_t_ratio < threshold && cs.tconv_max < overall_threshold
 end
 
 #==============================================================================#

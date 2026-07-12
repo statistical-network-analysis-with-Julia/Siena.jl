@@ -49,12 +49,40 @@ compute_target_statistics
 compute_simulated_statistics
 ```
 
+### Derivative Matrix Estimators
+
+```@docs
+estimate_derivative_matrix
+estimate_derivative_matrix_score
+```
+
 ## Simulation
 
 ### simulate_saom
 
 ```@docs
 simulate_saom
+```
+
+### Objective effect sets
+
+The simulation hot path snapshots the included objective effects into a
+tuple-backed [`ObjectiveEffectSet`](@ref) (built once per simulation), so the
+per-candidate contribution loop is statically dispatched. All simulation
+functions accept either a `SienaEffects` table or a prebuilt set; results are
+identical.
+
+```@docs
+ObjectiveEffectSet
+build_objective_set
+Siena.ObjectiveEffectSpec
+```
+
+### Score accumulation
+
+```@docs
+ScoreAccumulator
+reset_scores!
 ```
 
 ### simulate_period!

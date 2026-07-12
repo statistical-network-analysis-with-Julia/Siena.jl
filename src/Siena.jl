@@ -20,6 +20,7 @@ Markov chain model of network evolution.
 - `siena_dependent()`: Define dependent network or behavior variable
 - `constant_covariate()`, `varying_covariate()`: Create actor covariates
 - `constant_dyad_covariate()`, `varying_dyad_covariate()`: Create dyadic covariates
+- `add_composition_change!()`: Attach actors joining/leaving (`CompositionChange`)
 
 ## Model Specification
 - `get_effects()`: Create effects object from data
@@ -27,11 +28,13 @@ Markov chain model of network evolution.
 - `include_interaction!()`: Add interaction effects
 
 ## Estimation
-- `siena07()`: Estimate model parameters (main estimation function)
+- `fit_siena()`: Estimate model parameters (main estimation function;
+  `siena07()` is the RSiena-faithful alias)
 - `siena_algorithm()`: Configure estimation algorithm
 
 ## Model Assessment
-- `siena_gof()`: Goodness of fit testing
+- `gof()`: Goodness of fit testing (method of the shared `Network.gof` generic)
+- `siena_gof()`: Goodness of fit testing (RSiena-style, detailed result)
 - `siena_time_test()`: Test for time heterogeneity
 
 # Example
@@ -52,7 +55,7 @@ effects = get_effects(data)
 include_effects!(effects, :friendship, [:outdegree, :recip, :transTrip])
 
 # Estimate
-result = siena07(data, effects)
+result = fit_siena(data, effects)   # siena07(data, effects) is an alias
 ```
 
 See the RSiena manual for theoretical background on Stochastic Actor-Oriented Models.
@@ -66,15 +69,25 @@ using Printf
 using Random
 using SparseArrays
 using Statistics
+using StatsAPI
+using StatsAPI: coef, stderror, vcov, confint
 using StatsBase
+
+# Shared result-presentation infrastructure (coefficient tables, GOF containers)
+using Network: print_coeftable, format_pvalue, signif_code
+# The ONE ecosystem-wide `gof` generic and the shared GOF result types: Siena
+# adds methods/conversions and re-exports the names, so `using Siena, Network`
+# never produces colliding exports.
+import Network: gof, GOFResult, GOFStatistic
 
 # Core types
 export NodeSet, SienaData
 export AbstractDependent, DependentNetwork, DependentBehavior
 export AbstractCovariate, ConstantCovariate, VaryingCovariate
 export ConstantDyadCovariate, VaryingDyadCovariate
-export CompositionChange, NetworkState
+export CompositionChange, NetworkState, StateNetwork
 export initialize!
+export add_change!, add_composition_change!, is_present
 
 # Data creation functions
 export siena_data, siena_nodeset, siena_dependent
@@ -82,6 +95,7 @@ export constant_covariate, varying_covariate
 export constant_dyad_covariate, varying_dyad_covariate
 export add_nodeset!, add_dependent!, add_covariate!
 export n_waves, n_actors
+export has_structural, is_structural_dyad, n_structural_dyads
 
 # Effects types
 export AbstractEffect, NetworkEffect, BehaviorEffect, RateEffect
@@ -187,18 +201,24 @@ export simulate_saom, simulate_period!, snapshot
 export compute_objective, compute_network_choice_probs, compute_behavior_choice_probs
 export SimulationResult
 export ParameterMap, build_param_map, parameter_names, objective_theta, basic_rate
+export ObjectiveEffectSet, build_objective_set
+export ScoreAccumulator, reset_scores!
 
 # Estimation
-export siena07, SienaResult
+export fit_siena, siena07, SienaResult
 export coef, stderror, vcov, confint
 export compute_target_statistics, compute_simulated_statistics, default_basic_rate
+export estimate_derivative_matrix, estimate_derivative_matrix_score
 
 # Goodness of fit
 export AbstractGOFStatistic
 export IndegreeDistribution, OutdegreeDistribution
 export TriadCensus, GeodesicDistribution, BehaviorDistribution
-export siena_gof, GOFResult, compute_gof_statistic
+export siena_gof, SienaGOFResult, compute_gof_statistic
 export siena_gof_indegree, siena_gof_outdegree, siena_gof_triad, siena_gof_behavior
+# Shared GOF interface (re-exports of the Network.jl names: `gof(fit, ...)`
+# returns the ecosystem-wide `GOFResult`)
+export gof, GOFResult, GOFStatistic
 
 # Include source files
 include("types.jl")
@@ -238,6 +258,11 @@ siena_nodeset(n::Int; names::Vector{String}=String[], id::Symbol=:actors) =
 
 Create a dependent network variable.
 Equivalent to R's sienaDependent() for networks.
+
+Matrices may contain RSiena-style structural codes (default: `10` =
+structural zero, `11` = structural one, configurable via the
+`structural_zero`/`structural_one` keywords); see
+[`DependentNetwork`](@ref) for the semantics.
 """
 siena_dependent(name::Symbol, networks::Vector{<:AbstractMatrix}; kwargs...) =
     DependentNetwork(name, networks; kwargs...)

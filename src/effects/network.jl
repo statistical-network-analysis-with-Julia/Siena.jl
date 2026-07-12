@@ -58,8 +58,13 @@ function _centered_similarity(cov::AbstractCovariate, i::Int, j::Int, wave::Int)
     return sim - _get_covariate_sim_mean(cov)
 end
 
-_row_sum(net::Matrix{Int}, i::Int) = @views sum(net[i, :])
-_col_sum(net::Matrix{Int}, j::Int) = @views sum(net[:, j])
+# Degree lookups. Simulation states store networks as `StateNetwork`s with
+# incrementally maintained degree vectors, so the hot-loop lookups are O(1);
+# the generic methods keep plain-matrix callers working.
+_row_sum(net::StateNetwork, i::Int) = net.outdeg[i]
+_col_sum(net::StateNetwork, j::Int) = net.indeg[j]
+_row_sum(net::AbstractMatrix{Int}, i::Int) = @views sum(net[i, :])
+_col_sum(net::AbstractMatrix{Int}, j::Int) = @views sum(net[:, j])
 
 #==============================================================================#
 # Basic Structural Effects
@@ -943,7 +948,7 @@ effect_name(::GWESPEffect) = :gwespFF
 effect_type(::GWESPEffect) = :eval
 target_variable(e::GWESPEffect) = e.variable
 
-function _esp_count(net::Matrix{Int}, i::Int, j::Int, ego_out::Bool, alter_out::Bool)
+function _esp_count(net::AbstractMatrix{Int}, i::Int, j::Int, ego_out::Bool, alter_out::Bool)
     n = size(net, 1)
     sp = 0
     for h in 1:n

@@ -64,6 +64,19 @@ println("Waves: ", n_waves(friendship))    # 3
 println("Actors: ", n_actors(friendship))  # 50
 ```
 
+If your panel already lives in the ecosystem's `Network` objects (e.g. built
+with Network.jl and described with SNA.jl), you can skip the adjacency
+matrices entirely: with Network.jl loaded, `DependentNetwork` accepts a
+`Vector` of networks directly (see [Using Network.jl objects](@ref)):
+
+```julia
+using Network  # activates the SienaNetworkExt bridge
+
+waves = [network(50) for _ in 1:3]
+# ... add_edge!(waves[w], i, j) for each observed tie ...
+friendship = DependentNetwork(:friendship, waves)
+```
+
 ### Add Covariates
 
 Actor-level covariates can be constant or varying across waves:
@@ -316,6 +329,7 @@ A high overall p-value (> 0.05) indicates the model fits well for that statistic
 ```julia
 using Siena
 using Random
+using LinearAlgebra: diagind
 
 Random.seed!(123)
 
@@ -404,6 +418,62 @@ In co-evolution models, you can distinguish:
   - Use `SimilarityEffect`, `SameEffect` in the network model
 - **Influence effects** (behavior part): Does network position affect behavior change?
   - Use `AverageAlterEffect`, `TotalAlterEffect` in the behavior model
+
+## Using Network.jl objects
+
+Siena.jl has no hard dependency on the rest of the network stack, but it ships
+a package extension (`SienaNetworkExt`) that activates automatically when
+[Network.jl](https://github.com/statistical-network-analysis-with-Julia/Network.jl)
+is loaded in the same session. The extension lets you move from
+describing cross-sections (e.g. with SNA.jl) to modeling dynamics without
+converting anything to matrices by hand:
+
+```julia
+using Network, SNA, Siena
+
+# Wave observations as Network objects (from data import, SNA workflows, ...)
+waves = [read_pajek("wave$(w).net") for w in 1:3]
+
+# Describe the cross-sections
+println(density.(waves))
+
+# Model the dynamics: Networks convert directly
+data = siena_data()
+add_nodeset!(data, NodeSet(nv(waves[1])))
+add_dependent!(data, DependentNetwork(:friendship, waves))
+
+effects = get_effects(data)
+include_effects!(effects, :friendship, [:outdegree, :recip, :transTrip])
+result = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+```
+
+The conversion (via `Network.as_matrix`):
+
+- preserves **directedness** — a panel of `network(n; directed=false)`
+  observations produces an undirected `DependentNetwork` with symmetric
+  adjacency matrices;
+- validates that all waves share the **same node set** (equal vertex counts,
+  equal mode sizes for two-mode networks, and matching `:vertex_names`
+  vertex attributes where present) and the same directedness, throwing an
+  `ArgumentError` otherwise;
+- maps two-mode networks (`network(n; bipartite=k)` or `BipartiteNetwork`)
+  to `type = :twomode` dependent variables holding incidence matrices.
+
+Dyadic covariates accept networks too, optionally reading an edge attribute:
+
+```julia
+# Binary adjacency of a fixed relation as a dyadic covariate
+add_covariate!(data, ConstantDyadCovariate(:advice, advice_net))
+
+# Edge attribute values (absent edges contribute 0)
+add_covariate!(data, ConstantDyadCovariate(:proximity, office_net; attr=:distance))
+
+# One network per wave
+add_covariate!(data, VaryingDyadCovariate(:contact, contact_waves; attr=:hours))
+```
+
+`siena_dependent`, `constant_dyad_covariate`, and `varying_dyad_covariate`
+gain the same network-accepting methods.
 
 ## Best Practices
 

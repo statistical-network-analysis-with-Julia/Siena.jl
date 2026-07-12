@@ -127,7 +127,7 @@ const TRIAD_LABELS = ["003", "012", "102", "021D", "021U", "021C", "111D", "111U
 
 # Classify the directed triad {a, b, c} into one of the 16 Davis–Leinhardt M-A-N
 # classes (1-based index into TRIAD_LABELS).
-function _triad_type(net::Matrix{Int}, a::Int, b::Int, c::Int)
+function _triad_type(net::AbstractMatrix{Int}, a::Int, b::Int, c::Int)
     mutual = 0
     asym_arcs = Tuple{Int, Int}[]
     mutual_pair = (0, 0)
@@ -280,20 +280,25 @@ end
 #==============================================================================#
 
 """
-    GOFResult
+    SienaGOFResult
 
-Result of goodness of fit assessment.
+Result of a [`siena_gof`](@ref) goodness of fit assessment for ONE statistic
+(RSiena-style, keeping the Mahalanobis machinery). Convertible to the
+ecosystem-wide `GOFResult` (from Network.jl) via `GOFResult(result)`, which is
+also what the shared [`gof`](@ref) generic returns; display goes through the
+shared GOF table.
 
 # Fields
 - `statistic::AbstractGOFStatistic`: The GOF statistic used
 - `labels::Vector`: Labels of the statistic's levels
 - `observed::Vector{Int}`: Observed counts
 - `simulated::Matrix{Int}`: Simulated counts (n_sims × n_levels)
-- `p_values::Vector{Float64}`: Monte-Carlo two-sided p-values per level
+- `p_values::Vector{Float64}`: Monte-Carlo two-sided p-values per level, computed
+  with the `(1 + k)/(N + 1)` estimator (never exactly 0)
 - `mahalanobis::Float64`: Mahalanobis distance of the observed vector
 - `p_overall::Float64`: Monte-Carlo p-value of the Mahalanobis distance
 """
-struct GOFResult
+struct SienaGOFResult
     statistic::AbstractGOFStatistic
     labels::Vector
     observed::Vector{Int}
@@ -303,20 +308,32 @@ struct GOFResult
     p_overall::Float64
 end
 
-function Base.show(io::IO, result::GOFResult)
-    println(io, "Goodness of Fit: $(typeof(result.statistic).name.name)")
-    println(io, "Overall p-value: $(round(result.p_overall, digits=4)) " *
-                "(Mahalanobis distance $(round(result.mahalanobis, digits=3)))")
-    println(io)
-    println(io, "Level-specific results:")
-    for (i, label) in enumerate(result.labels)
-        obs = result.observed[i]
-        sim_mean = mean(result.simulated[:, i])
-        sim_sd = std(result.simulated[:, i])
-        p = result.p_values[i]
-        @printf(io, "  %-12s: obs=%d, sim=%.1f (%.1f), p=%.3f\n",
-                string(label), obs, sim_mean, sim_sd, p)
-    end
+# Table heading of a GOF statistic in the shared GOFResult display.
+_gof_statistic_name(s::IndegreeDistribution) = "indegree distribution ($(s.variable))"
+_gof_statistic_name(s::OutdegreeDistribution) = "outdegree distribution ($(s.variable))"
+_gof_statistic_name(s::TriadCensus) = "triad census ($(s.variable))"
+_gof_statistic_name(s::GeodesicDistribution) = "geodesic distribution ($(s.variable))"
+_gof_statistic_name(s::BehaviorDistribution) = "behavior distribution ($(s.variable))"
+_gof_statistic_name(s::AbstractGOFStatistic) = string(typeof(s).name.name)
+
+# One SienaGOFResult -> the shared per-statistic GOF container.
+_gof_statistic(r::SienaGOFResult) =
+    GOFStatistic(_gof_statistic_name(r.statistic), string.(r.labels),
+                 Float64.(r.observed), Float64.(r.simulated); p_values=r.p_values)
+
+"""
+    GOFResult(result::SienaGOFResult; model="SAOM") -> GOFResult
+
+Convert an RSiena-style [`SienaGOFResult`](@ref) to the ecosystem-wide
+`GOFResult` (from Network.jl), carrying the Monte-Carlo p-value of the
+Mahalanobis distance as the overall p-value.
+"""
+GOFResult(result::SienaGOFResult; model::AbstractString="SAOM") =
+    GOFResult([_gof_statistic(result)]; model=model, p_overall=result.p_overall)
+
+function Base.show(io::IO, result::SienaGOFResult)
+    show(io, GOFResult(result))
+    @printf(io, "Mahalanobis distance: %.3f\n", result.mahalanobis)
 end
 
 #==============================================================================#
@@ -360,12 +377,14 @@ function siena_gof(result::SienaResult, data::SienaData, statistic::AbstractGOFS
         simulated[s, :] = sim_counts
     end
 
-    # Per-level Monte-Carlo two-sided p-values
+    # Per-level Monte-Carlo two-sided p-values, with the (1 + k)/(N + 1) estimator
+    # (Davison & Hinkley): the observed value counts as one draw from the null,
+    # so the p-value can never be exactly 0.
     p_values = Float64[]
     for i in 1:n_levels
         sim_col = simulated[:, i]
         n_extreme = sum(abs.(sim_col .- mean(sim_col)) .>= abs(observed[i] - mean(sim_col)))
-        push!(p_values, n_extreme / n_sims)
+        push!(p_values, (1 + n_extreme) / (n_sims + 1))
     end
 
     # Overall Monte-Carlo Mahalanobis test
@@ -378,7 +397,48 @@ function siena_gof(result::SienaResult, data::SienaData, statistic::AbstractGOFS
     sim_dists = [_mahalanobis(sim_f[s, :], center, C) for s in 1:n_sims]
     p_overall = (1 + count(>=(obs_dist), sim_dists)) / (n_sims + 1)
 
-    return GOFResult(statistic, labels, observed, simulated, p_values, obs_dist, p_overall)
+    return SienaGOFResult(statistic, labels, observed, simulated, p_values, obs_dist,
+                          p_overall)
+end
+
+#==============================================================================#
+# Shared `gof` generic (Network.jl)
+#==============================================================================#
+
+"""
+    gof(result::SienaResult, data::SienaData, statistic; n_sims=100, seed=nothing)
+    gof(result::SienaResult, data::SienaData, statistics::AbstractVector; ...)
+
+Goodness-of-fit assessment of an estimated SAOM, as a method of the shared
+`Network.gof` generic: simulate from the estimated model with [`siena_gof`](@ref)
+and return the ecosystem-wide `GOFResult` (one table per statistic).
+
+`statistic` is an [`AbstractGOFStatistic`](@ref) (e.g.
+`IndegreeDistribution(:friendship)`); pass a vector to assess several statistics
+in one report. With a single statistic the overall p-value is the Monte-Carlo
+p-value of the Mahalanobis distance (as in RSiena's `sienaGOF`); the full
+RSiena-style detail remains available from [`siena_gof`](@ref).
+
+# Example
+```julia
+result = fit_siena(data, effects)
+gof(result, data, IndegreeDistribution(:friendship); n_sims=200, seed=1)
+gof(result, data, [IndegreeDistribution(:friendship), TriadCensus(:friendship)])
+```
+"""
+gof(result::SienaResult, data::SienaData, statistic::AbstractGOFStatistic;
+    kwargs...) = GOFResult(siena_gof(result, data, statistic; kwargs...))
+
+function gof(result::SienaResult, data::SienaData,
+             statistics::AbstractVector{<:AbstractGOFStatistic};
+             n_sims::Int=100, seed::Union{Int, Nothing}=nothing)
+    isempty(statistics) &&
+        throw(ArgumentError("gof requires at least one GOF statistic"))
+    results = [siena_gof(result, data, stat; n_sims=n_sims,
+                         seed=seed === nothing ? nothing : seed + i - 1)
+               for (i, stat) in enumerate(statistics)]
+    length(results) == 1 && return GOFResult(results[1])
+    return GOFResult([_gof_statistic(r) for r in results]; model="SAOM")
 end
 
 #==============================================================================#
