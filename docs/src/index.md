@@ -44,10 +44,11 @@ SAOMs are widely used in:
 
 - **150+ effects**: Comprehensive library of structural, covariate, behavior, rate, and two-mode effects
 - **Co-evolution modeling**: Joint modeling of network and behavior dynamics
-- **Three-phase estimation**: Robbins-Monro stochastic approximation with derivative estimation
-- **Goodness of fit**: Assessment via indegree, outdegree, triad census, geodesic, and behavior distributions
-- **RSiena-compatible API**: Familiar function names (`siena07`, `get_effects`, `include_effects!`)
-- **Flexible data structures**: Support for one-mode, two-mode, and multivariate networks
+- **Three-phase estimation**: Robbins-Monro stochastic approximation with score-function derivative estimation, Polyak-Ruppert averaging, and threaded phase 3
+- **Conditional estimation**: RSiena's `cond=TRUE`, conditioning each simulated period on the observed amount of change of one dependent variable
+- **Goodness of fit**: Assessment via indegree, outdegree, triad census, geodesic, and behavior distributions -- RSiena-style `siena_gof` or the ecosystem-wide `gof` generic
+- **RSiena-compatible API**: `fit_siena` is the primary entry point, with familiar RSiena names kept as aliases (`siena07`, `get_effects`, `include_effects!`)
+- **Flexible data structures**: Support for one-mode, two-mode, and multivariate networks, including RSiena-style structural zeros/ones (10/11 coding)
 - **Composition change**: Handle actors entering or leaving the network
 - **Network.jl bridge**: With Network.jl loaded, `DependentNetwork` and the dyadic
   covariates accept `Network` objects directly (package extension, no hard
@@ -94,7 +95,7 @@ include_effects!(effects, :friendship, [:outdegree, :recip, :transTrip])
 
 # Step 3: Configure algorithm and estimate
 algorithm = siena_algorithm(seed=42, phase3_iterations=500)
-result = siena07(data, effects; algorithm=algorithm)
+result = fit_siena(data, effects; algorithm=algorithm)
 
 # Step 4: Interpret results
 println(result)

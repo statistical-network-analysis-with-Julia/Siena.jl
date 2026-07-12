@@ -56,13 +56,35 @@ include_effects!(effects, :friendship, [:outdegree, :recip])
 include_effects!(effects, :drinking, [:linear, :quad])
 
 # After estimation
-result = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+result = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 
 # GOF for indegree distribution
 gof_in = siena_gof(result, data, IndegreeDistribution(:friendship);
     n_sims=100, seed=42)
 println(gof_in)
 ```
+
+### The Shared `gof` Generic
+
+Siena.jl also extends the ecosystem-wide `Network.gof` generic. Calling
+[`gof`](@ref) returns the shared `GOFResult` container (one table per
+statistic), which prints uniformly across the network-analysis packages:
+
+```julia
+# One statistic
+report = gof(result, data, IndegreeDistribution(:friendship); n_sims=100, seed=42)
+
+# Several statistics in one report
+report = gof(result, data,
+    [IndegreeDistribution(:friendship), OutdegreeDistribution(:friendship)];
+    n_sims=100, seed=42)
+println(report)
+```
+
+Use [`siena_gof`](@ref) when you need the full RSiena-style detail
+(simulated matrix, Mahalanobis distance); use `gof` for a compact,
+ecosystem-standard report. A [`SienaGOFResult`](@ref) can be converted with
+`GOFResult(gof_in)`.
 
 ### Convenience Functions
 
@@ -104,9 +126,10 @@ More simulations provide more precise p-values but increase computation time lin
 
 ## Interpreting GOF Results
 
-### The GOFResult Object
+### The SienaGOFResult Object
 
-The [`GOFResult`](@ref) contains:
+`siena_gof` returns a [`SienaGOFResult`](@ref) (the name `GOFResult` refers
+to Network.jl's shared GOF container, re-exported by Siena). It contains:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -144,7 +167,13 @@ Level-specific results:
 For each level (e.g., indegree value):
 - **obs**: Observed count in the real network
 - **sim**: Mean count across simulations (with standard deviation)
-- **p**: Two-sided p-value (proportion of simulations as or more extreme)
+- **p**: Two-sided Monte-Carlo p-value, computed with the `(1 + k)/(N + 1)`
+  estimator (Davison & Hinkley), where `k` is the number of simulations as or
+  more extreme than the observed value -- so p-values can never be exactly 0
+
+The overall p-value is the Monte-Carlo proportion of simulations whose
+Mahalanobis distance (with respect to the simulated distribution) is at least
+the observed one, as in RSiena's `sienaGOF`.
 
 ### Overall Assessment
 
@@ -179,7 +208,7 @@ GOF results guide model improvement. If a particular feature is not well reprodu
 effects = get_effects(data)
 include_effects!(effects, :friendship, [:outdegree, :recip])
 
-result1 = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+result1 = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 ```
 
 ### Step 2: Check GOF
@@ -196,7 +225,7 @@ println("Triad p-value: ", gof_triad.p_overall)
 # Poor triad fit suggests adding transitivity
 include_effects!(effects, :friendship, [:transTrip])
 
-result2 = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+result2 = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 ```
 
 ### Step 4: Re-Check GOF
@@ -300,7 +329,7 @@ add_dependent!(data, DependentNetwork(:net, waves))
 # Estimate model
 effects = get_effects(data)
 include_effects!(effects, :net, [:outdegree, :recip, :transTrip])
-result = siena07(data, effects; algorithm=siena_algorithm(seed=42, verbose=false))
+result = fit_siena(data, effects; algorithm=siena_algorithm(seed=42, verbose=false))
 
 # Comprehensive GOF assessment
 if result.converged

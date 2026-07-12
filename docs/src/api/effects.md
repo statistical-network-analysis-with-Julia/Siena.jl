@@ -78,6 +78,12 @@ compute_statistic
 rate_score
 ```
 
+### compute_rate
+
+```@docs
+Siena.compute_rate
+```
+
 ## Structural Network Effects -- Basic
 
 ### OutdegreeEffect
@@ -620,6 +626,12 @@ OutdegreeSqRateEffect
 RecipDegreeRateEffect
 ```
 
+### OutRecipRateEffect
+
+```@docs
+Siena.OutRecipRateEffect
+```
+
 ## Rate Effects -- Behavior-Based
 
 ### BehaviorRateEffect
@@ -800,4 +812,12 @@ get_objective_effects
 
 ```@docs
 effects_table
+```
+
+### Internal Effects Helpers
+
+```@docs
+Siena.add_effect!
+Siena.n_rate_parameters
+Siena.n_objective_parameters
 ```

@@ -4,10 +4,24 @@ This page documents the functions for model estimation, simulation, and goodness
 
 ## Model Estimation
 
+### fit_siena
+
+The primary estimation entry point.
+
+```@docs
+fit_siena
+```
+
 ### siena07
 
 ```@docs
 siena07
+```
+
+### Internal update helpers
+
+```@docs
+Siena.update_parameters!
 ```
 
 ## Parameters and Targets
@@ -76,6 +90,7 @@ identical.
 ObjectiveEffectSet
 build_objective_set
 Siena.ObjectiveEffectSpec
+Siena.entry_value
 ```
 
 ### Score accumulation
@@ -89,6 +104,19 @@ reset_scores!
 
 ```@docs
 simulate_period!
+```
+
+### Internal ministep machinery
+
+One iteration of the continuous-time Markov chain: an actor is selected via
+the rate function, waits an exponential time, and executes a network or
+behavior ministep.
+
+```@docs
+Siena.actor_rate
+Siena.sample_waiting_time
+Siena.execute_network_ministep!
+Siena.execute_behavior_ministep!
 ```
 
 ### compute_objective
@@ -137,7 +165,18 @@ confint
 
 ## Goodness of Fit
 
+### gof
+
+Method of the shared `Network.gof` generic; returns the ecosystem-wide
+[`GOFResult`](@ref).
+
+```@docs
+gof(::SienaResult, ::SienaData, ::AbstractGOFStatistic)
+```
+
 ### siena_gof
+
+The RSiena-style entry point; returns the detailed [`SienaGOFResult`](@ref).
 
 ```@docs
 siena_gof

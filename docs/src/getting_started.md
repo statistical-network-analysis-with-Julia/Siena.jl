@@ -19,7 +19,7 @@ The typical Siena.jl workflow consists of five steps:
 1. **Prepare data** - Create node sets, dependent variables, and covariates
 2. **Define effects** - Choose which social mechanisms to model
 3. **Configure algorithm** - Set estimation parameters
-4. **Estimate model** - Run `siena07` for Method of Moments estimation
+4. **Estimate model** - Run `fit_siena` (or its RSiena-faithful alias `siena07`) for Method of Moments estimation
 5. **Interpret results** - Assess convergence, significance, and goodness of fit
 
 ## Step 1: Prepare Data
@@ -162,7 +162,7 @@ algorithm = siena_algorithm(
     phase1_iterations = 50,    # Iterations for rough estimation
     phase3_iterations = 1000,  # Iterations for SE estimation
     initial_gain = 0.2,        # Starting gain parameter
-    convergence_threshold = 0.25,  # Max t-ratio for convergence
+    convergence_threshold = 0.1,   # Max per-parameter |t-ratio| for convergence
     seed = 42,                 # Random seed for reproducibility
     verbose = true             # Print progress
 )
@@ -184,7 +184,8 @@ algorithm = siena_algorithm(seed=42)
 | `phase1_iterations` | Phase 1 iterations | 50 | Rarely needs changing |
 | `phase3_iterations` | Phase 3 iterations | 1000 | Increase for more precise SEs |
 | `initial_gain` | Starting gain | 0.2 | Decrease if estimation is unstable |
-| `convergence_threshold` | Convergence criterion | 0.25 | Use 0.1 for strict convergence |
+| `convergence_threshold` | Max per-parameter t-ratio | 0.1 | RSiena's published standard; pass 0.25 to reproduce the pre-0.2 laxer gate |
+| `overall_convergence_threshold` | Max overall convergence ratio (`tconv.max`) | 0.25 | Rarely needs changing |
 | `seed` | Random seed | nothing | Always set for reproducibility |
 
 ## Step 4: Estimate Model
@@ -192,7 +193,7 @@ algorithm = siena_algorithm(seed=42)
 Run the main estimation function:
 
 ```julia
-result = siena07(data, effects; algorithm=algorithm)
+result = fit_siena(data, effects; algorithm=algorithm)
 ```
 
 During estimation, you will see output for each phase:
@@ -218,7 +219,8 @@ Target statistics computed
 
 --- Results ---
 Converged: true
-Max t-ratio: 0.08
+Max |t-ratio|: 0.08
+Overall max convergence ratio: 0.14
 ```
 
 ## Step 5: Interpret Results
@@ -234,7 +236,7 @@ Output:
 ```text
 SAOM Estimation Results
 =======================
-Converged: true (max |t-ratio| = 0.193)
+Converged: true (max |t-ratio| = 0.093, overall max convergence ratio = 0.184)
 Iterations: 1250
 
 Rate Parameters:
@@ -286,26 +288,36 @@ Coefficients represent the weight of each effect in the objective function:
 
 ### Checking Convergence
 
-Convergence is assessed via t-ratios (deviation / standard deviation):
+Convergence is assessed via t-ratios (deviation / standard deviation).
+Following RSiena's published criterion, `result.converged` is `true` only when
+**every** per-parameter |t-ratio| is below 0.1 *and* the overall maximum
+convergence ratio `result.tconv_max` (RSiena's `tconv.max`) is below 0.25:
 
 ```julia
 if result.converged
     println("Model converged successfully")
     println("Max t-ratio: ", maximum(abs.(result.t_ratios)))
+    println("tconv.max:   ", result.tconv_max)
 else
     println("WARNING: Model did not converge")
     println("t-ratios: ", result.t_ratios)
 end
+
+# Estimates that hit the parameter clamp are flagged
+result.diverged && println("WARNING: divergence detected -- do not trust estimates")
 ```
 
-**Convergence guidelines:**
+**Convergence guidelines (per-parameter |t-ratio|):**
 
 | Max |t-ratio| | Assessment |
 |-----------------|------------|
-| < 0.1 | Excellent convergence |
-| 0.1 - 0.2 | Adequate convergence |
-| 0.2 - 0.25 | Borderline -- consider re-running |
+| < 0.1 | Converged -- proceed with interpretation |
+| 0.1 - 0.25 | Not converged by the strict criterion -- re-run from the current estimates |
 | > 0.25 | Not converged -- do not interpret results |
+
+Additionally, check `result.diverged`: if `true`, one or more estimates hit
+the parameter clamp (objective parameters at +/-10, rates at [0.05, 1000]),
+and the estimates should not be trusted.
 
 ### Goodness of Fit
 
@@ -361,7 +373,7 @@ include_effects!(effects, :net, [Symbol("samegroup")])
 
 # === Estimation ===
 alg = siena_algorithm(seed=42, phase3_iterations=500, verbose=false)
-result = siena07(data, effects; algorithm=alg)
+result = fit_siena(data, effects; algorithm=alg)
 
 # === Results ===
 println(result)
@@ -407,7 +419,7 @@ include_effects!(effects, :drinking, [:linear, :quad])
 include_effects!(effects, :drinking, [Symbol("avAltfriendship")])
 
 # Estimate
-result = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+result = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 println(result)
 ```
 
@@ -455,7 +467,7 @@ add_dependent!(data, DependentNetwork(:friendship, waves))
 
 effects = get_effects(data)
 include_effects!(effects, :friendship, [:outdegree, :recip, :transTrip])
-result = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+result = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 ```
 
 The conversion (via `Network.as_matrix`):

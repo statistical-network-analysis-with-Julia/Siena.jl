@@ -2,6 +2,12 @@
 
 This page documents the core data types in Siena.jl.
 
+## The Siena Module
+
+```@docs
+Siena
+```
+
 ## Node Sets
 
 ### NodeSet
@@ -101,9 +107,17 @@ VaryingDyadCovariate
 CompositionChange
 ```
 
+### Composition Change Operations
+
+```@docs
+add_change!
+add_composition_change!
+is_present
+```
+
 ## Network State
 
-The `NetworkState` type maintains the current state of networks and behaviors during simulation. It tracks adjacency matrices and behavior vectors as they evolve through mini-steps.
+The `NetworkState` type maintains the current state of networks and behaviors during simulation. It tracks adjacency matrices (as bit-packed [`StateNetwork`](@ref) matrices with cached degrees) and behavior vectors as they evolve through mini-steps.
 
 ### NetworkState
 
@@ -111,10 +125,22 @@ The `NetworkState` type maintains the current state of networks and behaviors du
 NetworkState
 ```
 
+### StateNetwork
+
+```@docs
+StateNetwork
+```
+
 ### State Initialization
 
 ```@docs
 initialize!
+```
+
+### snapshot
+
+```@docs
+snapshot
 ```
 
 ## Convenience Constructors
@@ -208,6 +234,14 @@ PhaseState
 ConvergenceStats
 ```
 
+### Internal Phase and Convergence Helpers
+
+```@docs
+Siena.advance_phase!
+Siena.update_convergence!
+Siena.is_converged
+```
+
 ## Result Types
 
 ### SienaResult
@@ -238,7 +272,19 @@ SienaEffects
 
 ## GOF Types
 
+### SienaGOFResult
+
+The detailed, RSiena-style result returned by [`siena_gof`](@ref).
+
+```@docs
+SienaGOFResult
+```
+
 ### GOFResult
+
+`GOFResult` is the ecosystem-wide GOF container from Network.jl (re-exported
+by Siena). It is returned by the shared [`gof`](@ref) generic, and any
+[`SienaGOFResult`](@ref) can be converted to it.
 
 ```@docs
 GOFResult

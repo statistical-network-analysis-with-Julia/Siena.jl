@@ -37,9 +37,17 @@ Estimation proceeds in three distinct phases:
 - Parameters are held fixed
 - Collects a large number of simulations (typically 1000)
 - Computes the covariance of simulated statistics ($\Sigma$)
-- Re-estimates the derivative matrix ($D$)
+- Re-estimates the derivative matrix ($D$), by default with the
+  score-function estimator (Schweinberger–Snijders), which accumulates
+  trajectory scores over all phase-3 simulations
 - Computes standard errors via $\text{Var}(\hat\theta) \approx D^{-1} \Sigma D^{-\top}$
 - Purpose: compute standard errors and assess convergence
+
+Phase 2 additionally applies Polyak–Ruppert averaging over each subphase, so
+the estimates carry substantially less Monte-Carlo noise at the same
+simulation budget. Phase-3 simulations run on threads with pre-drawn
+per-simulation seeds, so results are bitwise identical regardless of
+`JULIA_NUM_THREADS`.
 
 ## Configuring the Algorithm
 
@@ -82,7 +90,7 @@ algorithm = siena_algorithm(
     initial_gain = 0.2,
     min_gain = 0.0005,
     max_iterations = 50,
-    convergence_threshold = 0.25,
+    convergence_threshold = 0.1,
     seed = 42,
     model_type = :standard,
     conditional = false,
@@ -101,11 +109,15 @@ algorithm = siena_algorithm(
 | `initial_gain` | 0.2 | Starting gain parameter $a_0$ |
 | `min_gain` | 0.0005 | Minimum gain value |
 | `max_iterations` | 50 | Maximum iterations per phase/subphase |
-| `convergence_threshold` | 0.25 | Maximum t-ratio for convergence |
+| `convergence_threshold` | 0.1 | Maximum per-parameter t-ratio for convergence |
+| `overall_convergence_threshold` | 0.25 | Maximum overall convergence ratio (`tconv.max`) |
 | `seed` | nothing | Random seed for reproducibility |
 | `model_type` | `:standard` | `:standard`, `:behavioronly`, or `:networkonly` |
 | `conditional` | false | Use conditional estimation |
+| `condvar` | nothing | Conditioning variable for conditional estimation |
 | `n_simulations` | 1 | Simulations per iteration |
+| `derivative_method` | `:score` | `:score` (score-function) or `:finite_difference` |
+| `derivative_sims` | 30 | Simulations per finite-difference derivative estimate |
 | `verbose` | true | Print progress during estimation |
 
 ### Model Types
@@ -127,7 +139,6 @@ algorithm = siena_algorithm(
     phase1_iterations = 100,    # Longer warm-up
     phase3_iterations = 2000,   # More precise SEs
     initial_gain = 0.1,         # Smaller steps (more stable)
-    convergence_threshold = 0.1, # Stricter convergence
     seed = 42
 )
 ```
@@ -136,15 +147,20 @@ algorithm = siena_algorithm(
 
 ### Basic Usage
 
+[`fit_siena`](@ref) is the primary estimation entry point;
+[`siena07`](@ref) is kept as the RSiena-faithful alias and accepts the same
+arguments:
+
 ```julia
-result = siena07(data, effects)
+result = fit_siena(data, effects)
+result = siena07(data, effects)    # identical
 ```
 
 ### With Custom Algorithm
 
 ```julia
 algorithm = siena_algorithm(seed=42, verbose=true)
-result = siena07(data, effects; algorithm=algorithm)
+result = fit_siena(data, effects; algorithm=algorithm)
 ```
 
 ### Monitoring Progress
@@ -177,7 +193,8 @@ Target statistics computed
 
 --- Results ---
 Converged: true
-Max t-ratio: 0.087
+Max |t-ratio|: 0.087
+Overall max convergence ratio: 0.152
 ```
 
 ## Understanding Results
@@ -189,13 +206,18 @@ The [`SienaResult`](@ref) contains:
 | Field | Type | Description |
 |-------|------|-------------|
 | `effects` | `SienaEffects` | The effects specification |
+| `parameter_names` | `Vector{String}` | Labels for the estimate vector |
 | `estimates` | `Vector{Float64}` | Parameter estimates |
 | `standard_errors` | `Vector{Float64}` | Standard errors |
 | `t_ratios` | `Vector{Float64}` | Convergence t-ratios |
 | `covariance` | `Matrix{Float64}` | Parameter covariance matrix |
 | `converged` | `Bool` | Whether estimation converged |
+| `tconv_max` | `Float64` | Overall maximum convergence ratio (RSiena's `tconv.max`) |
+| `diverged` | `Bool` | Whether any estimate hit the parameter clamp |
 | `n_iterations` | `Int` | Total iterations used |
 | `rate_estimates` | `Dict{Symbol, Vector{Float64}}` | Rate estimates per period |
+| `targets` | `Vector{Float64}` | Observed target statistics |
+| `simulated_means` | `Vector{Float64}` | Mean phase-3 simulated statistics |
 
 ### Displaying Results
 
@@ -208,7 +230,7 @@ Output:
 ```text
 SAOM Estimation Results
 =======================
-Converged: true (max |t-ratio| = 0.193)
+Converged: true (max |t-ratio| = 0.093, overall max convergence ratio = 0.184)
 Iterations: 1250
 
 Rate Parameters:
@@ -293,14 +315,27 @@ $$t_k = \frac{\bar{s}_k^{sim} - s_k^{obs}}{\text{sd}(s_k^{sim})}$$
 
 where $\bar{s}_k^{sim}$ is the mean simulated statistic, $s_k^{obs}$ is the observed statistic, and $\text{sd}(s_k^{sim})$ is the standard deviation of simulated statistics.
 
+In addition to the per-parameter t-ratios, Siena.jl computes the **overall
+maximum convergence ratio** (RSiena's `tconv.max`),
+$\sqrt{\bar{e}^\top \Sigma^{-1} \bar{e}}$ for the mean deviation vector
+$\bar{e}$ — the largest t-ratio over all linear combinations of the
+deviations. It is reported as `result.tconv_max` and printed with the result.
+
 ### Convergence Criteria
+
+Following RSiena's published standard, `result.converged` is `true` only when
+**every** per-parameter |t-ratio| is below `convergence_threshold` (default
+0.1) *and* `tconv_max` is below `overall_convergence_threshold` (default
+0.25).
 
 | Max |t-ratio| | Assessment | Action |
 |-----------------|------------|--------|
-| < 0.1 | Excellent | Proceed with interpretation |
-| 0.1 - 0.2 | Good | Results are reliable |
-| 0.2 - 0.25 | Adequate | Consider re-running |
+| < 0.1 | Converged | Proceed with interpretation (if `tconv_max` < 0.25) |
+| 0.1 - 0.25 | Close | Re-run using the current estimates as starting values |
 | > 0.25 | Not converged | Do not interpret; re-run with different settings |
+
+To reproduce the laxer pre-0.2 gate (single max |t| < 0.25), pass
+`siena_algorithm(convergence_threshold=0.25)` and ignore `tconv_max`.
 
 ### Checking Convergence
 
@@ -308,10 +343,14 @@ where $\bar{s}_k^{sim}$ is the mean simulated statistic, $s_k^{obs}$ is the obse
 if result.converged
     max_t = maximum(abs.(result.t_ratios))
     println("Converged with max t-ratio: $(round(max_t, digits=3))")
+    println("tconv.max: $(round(result.tconv_max, digits=3))")
 else
     println("NOT CONVERGED")
     println("t-ratios: ", round.(result.t_ratios, digits=3))
 end
+
+# Divergence (estimates clamped at the parameter bounds) is flagged separately
+result.diverged && println("WARNING: divergence detected")
 ```
 
 ### Improving Convergence
@@ -323,11 +362,11 @@ If the model does not converge:
 ```julia
 # Start with minimal model
 include_effects!(effects, :net, [:outdegree, :recip])
-result1 = siena07(data, effects; algorithm=algorithm)
+result1 = fit_siena(data, effects; algorithm=algorithm)
 
 # Add effects one at a time
 include_effects!(effects, :net, [:transTrip])
-result2 = siena07(data, effects; algorithm=algorithm)
+result2 = fit_siena(data, effects; algorithm=algorithm)
 ```
 
 2. **Increase iterations**:
@@ -346,7 +385,7 @@ algorithm = siena_algorithm(
 # The estimate vector must come from a run with the SAME effects object:
 # coef(...) is aligned with the free entries of the parameter map
 # (rates first, then objective effects)
-result_a = siena07(data, effects; algorithm=algorithm)
+result_a = fit_siena(data, effects; algorithm=algorithm)
 prev_estimates = coef(result_a)
 
 pm = build_param_map(effects)
@@ -355,7 +394,7 @@ for (i, entry) in enumerate(pm.free)
 end
 
 # Re-run, starting from the previous estimates
-result_b = siena07(data, effects; algorithm=algorithm)
+result_b = fit_siena(data, effects; algorithm=algorithm)
 ```
 
 4. **Decrease initial gain**:
@@ -401,9 +440,14 @@ Rate parameters should typically be between 1 and 30. Values outside this range 
 
 ### Issue: Perfect Prediction (Separation)
 
-If a covariate perfectly predicts tie presence/absence, the coefficient diverges:
+If a covariate perfectly predicts tie presence/absence, the coefficient
+diverges. Objective parameters are clamped at ±10 (rates at [0.05, 1000]);
+hitting the clamp sets `result.diverged = true` and emits a warning:
 
 ```julia
+# Divergence is surfaced explicitly
+result.diverged && println("WARNING: estimates hit the parameter clamp")
+
 # Check for extreme estimates
 for (name, est) in zip(result.parameter_names, coef(result))
     if abs(est) >= 8
@@ -441,18 +485,18 @@ Complex models with many effects are harder to estimate:
 ```julia
 # Step 1: Basic model
 include_effects!(effects, :net, [:outdegree, :recip])
-result1 = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+result1 = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 
 # Step 2: Add transitivity (only if step 1 converges)
 if result1.converged
     include_effects!(effects, :net, [:transTrip])
-    result2 = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+    result2 = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 end
 
 # Step 3: Add covariates (only if step 2 converges)
 if result2.converged
     include_effects!(effects, :net, [Symbol("samegender")])
-    result3 = siena07(data, effects; algorithm=siena_algorithm(seed=42))
+    result3 = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 end
 ```
 
@@ -467,7 +511,7 @@ the observed distance, instead of until time 1 (Snijders 2001):
 
 ```julia
 algorithm = siena_algorithm(conditional=true, seed=42)
-result = siena07(data, effects; algorithm=algorithm)
+result = fit_siena(data, effects; algorithm=algorithm)
 ```
 
 The conditioned variable's basic rate parameters leave the moment
@@ -486,7 +530,20 @@ estimator (the trajectory score function assumes time-1 termination).
 
 ### The Derivative Matrix
 
-The derivative matrix $D$ captures how simulated statistics change with parameters. It is estimated via finite differences:
+The derivative matrix $D$ captures how simulated statistics change with
+parameters. By default (`derivative_method=:score`) it is estimated with the
+score-function estimator (Schweinberger & Snijders):
+
+$$\hat{D} = \widehat{\text{cov}}(s, J)$$
+
+where $J$ is the trajectory score function, accumulated over all phase-3
+simulations by a [`ScoreAccumulator`](@ref) — no extra simulations are
+needed, and the estimate is far less noisy than finite differences.
+
+With `derivative_method=:finite_difference` (and always under conditional
+estimation, whose stopping rule invalidates the trajectory score), $D$ is
+instead estimated from `derivative_sims` simulations with common random
+numbers:
 
 $$D_{kl} \approx \frac{E[s_k(\theta + \epsilon e_l)] - E[s_k(\theta)]}{\epsilon}$$
 
