@@ -50,7 +50,7 @@ makedocs(
 )
 
 deploydocs(
-    repo = "github.com/Statistical-network-analysis-with-Julia/Siena.jl.git",
+    repo = "github.com/statistical-network-analysis-with-Julia/Siena.jl.git",
     devbranch = "main",
     versions = [
         "stable" => "dev", # serve dev docs at /stable until a release is tagged
