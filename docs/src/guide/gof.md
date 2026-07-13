@@ -66,7 +66,7 @@ println(gof_in)
 
 ### The Shared `gof` Generic
 
-Siena.jl also extends the ecosystem-wide `Network.gof` generic. Calling
+Siena.jl also extends the ecosystem-wide `Networks.gof` generic. Calling
 [`gof`](@ref) returns the shared `GOFResult` container (one table per
 statistic), which prints uniformly across the network-analysis packages:
 
@@ -129,7 +129,7 @@ More simulations provide more precise p-values but increase computation time lin
 ### The SienaGOFResult Object
 
 `siena_gof` returns a [`SienaGOFResult`](@ref) (the name `GOFResult` refers
-to Network.jl's shared GOF container, re-exported by Siena). It contains:
+to Networks.jl's shared GOF container, re-exported by Siena). It contains:
 
 | Field | Type | Description |
 |-------|------|-------------|

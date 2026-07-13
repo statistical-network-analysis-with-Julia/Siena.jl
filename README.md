@@ -29,11 +29,11 @@ The models assume that the network evolves through a continuous-time Markov chai
 ## Installation
 
 Requires Julia 1.12+. Siena.jl depends on the unregistered
-[Network.jl](https://github.com/statistical-network-analysis-with-Julia/Network.jl) package, which must be added first:
+[Networks.jl](https://github.com/statistical-network-analysis-with-Julia/Networks.jl) package, which must be added first:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Network.jl")
+Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Networks.jl")
 Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Siena.jl")
 ```
 
@@ -73,17 +73,17 @@ result = siena07(data, effects; algorithm=alg)
 gof_indeg = siena_gof_indegree(result, data, :friendship; n_sims=100)
 ```
 
-## Interoperability with Network.jl
+## Interoperability with Networks.jl
 
 Siena.jl keeps zero hard dependencies on the network stack, but a package
 extension (`SienaNetworkExt`) activates automatically when
-[Network.jl](https://github.com/statistical-network-analysis-with-Julia/Network.jl)
+[Networks.jl](https://github.com/statistical-network-analysis-with-Julia/Networks.jl)
 is loaded. It converts panels of `Network` objects straight into Siena's data
 types, so you can describe cross-sections with SNA.jl and model their dynamics
 with Siena.jl without manual matrix wrangling:
 
 ```julia
-using Network, SNA, Siena, Random
+using Networks, SNA, Siena, Random
 
 # (for the demo, write three synthetic waves to Pajek files first)
 rng = Xoshiro(1)
@@ -288,16 +288,24 @@ brute-force toggle of the actor evaluation function.
   (`siena_algorithm(conditional=true)`) estimation are implemented; Maximum
   Likelihood and Bayesian estimation are not.
 - **Endowment/creation effects** are supported in simulation but not yet in
-  estimation; `include_interaction!` is not yet implemented.
+  estimation. **Interaction effects** are not implemented at all:
+  `include_interaction!` throws rather than returning a model without the
+  interaction.
 - **Derivative matrix** defaults to the score-function (Schweinberger–Snijders)
   estimator, with finite differences with common random numbers as a
   cross-check option.
 - **Structural zeros/ones** (10/11 coding) are supported in data, simulation, and
   moment statistics (see above), and composition change is handled with the
   Method-of-Moments semantics; missing data (`NA` ties) is not yet handled in
-  estimation.
-- A few rarely used effects use simplified definitions; these are flagged in their
-  docstrings (e.g. `balance`, `avAttHigher`/`avAttLower`).
+  estimation. Dyads whose structural status *changes* between waves do not get
+  RSiena's correction.
+- **Effects with a simplified formula are named differently on purpose.** An RSiena
+  short name in Siena.jl denotes a numerically equivalent implementation; the
+  effects that are only approximations carry a `Simple` suffix and are documented as
+  non-equivalent: `:balanceSimple` ([`BalanceSimpleEffect`]), `:avAttHigherSimple`
+  and `:avAttLowerSimple`. The names `:balance`, `:avAttHigher` and `:avAttLower` are
+  reserved for the real formulas and are deliberately not defined, so a model cannot
+  silently pick up an approximation under an RSiena name.
 
 ## Documentation
 

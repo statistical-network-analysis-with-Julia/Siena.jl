@@ -8,7 +8,7 @@ Install Siena.jl from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Network.jl")
+Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Networks.jl")
 Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Siena.jl")
 ```
 
@@ -66,12 +66,12 @@ println("Actors: ", n_actors(friendship))  # 50
 ```
 
 If your panel already lives in the ecosystem's `Network` objects (e.g. built
-with Network.jl and described with SNA.jl), you can skip the adjacency
-matrices entirely: with Network.jl loaded, `DependentNetwork` accepts a
-`Vector` of networks directly (see [Using Network.jl objects](@ref)):
+with Networks.jl and described with SNA.jl), you can skip the adjacency
+matrices entirely: with Networks.jl loaded, `DependentNetwork` accepts a
+`Vector` of networks directly (see [Using Networks.jl objects](@ref)):
 
 ```julia
-using Network  # activates the SienaNetworkExt bridge
+using Networks  # activates the SienaNetworkExt bridge
 
 waves = [network(50) for _ in 1:3]
 # ... add_edge!(waves[w], i, j) for each observed tie ...
@@ -149,7 +149,7 @@ include_effects!(effects, :friendship, [Symbol("samegender")])
 | **Transitivity** | `:transTrip` or `:transTies` or `:gwesp` |
 | **Popularity/Activity** | `:inPop`, `:inPopSqrt`, `:outAct`, `:outActSqrt` |
 | **Homophily** | `:sameX`, `:simX`, `:egoX`, `:altX` |
-| **Structural balance** | `:balance` |
+| **Structural balance** | `:balanceSimple` |
 | **Cycles** | `:cycle3` |
 
 ## Step 3: Configure Algorithm
@@ -432,17 +432,17 @@ In co-evolution models, you can distinguish:
 - **Influence effects** (behavior part): Does network position affect behavior change?
   - Use `AverageAlterEffect`, `TotalAlterEffect` in the behavior model
 
-## Using Network.jl objects
+## Using Networks.jl objects
 
 Siena.jl has no hard dependency on the rest of the network stack, but it ships
 a package extension (`SienaNetworkExt`) that activates automatically when
-[Network.jl](https://github.com/statistical-network-analysis-with-Julia/Network.jl)
+[Networks.jl](https://github.com/statistical-network-analysis-with-Julia/Networks.jl)
 is loaded in the same session. The extension lets you move from
 describing cross-sections (e.g. with SNA.jl) to modeling dynamics without
 converting anything to matrices by hand:
 
 ```julia
-using Network, SNA, Siena, Random
+using Networks, SNA, Siena, Random
 
 # (write three synthetic waves to Pajek files for the demo)
 rng2 = Xoshiro(1)
@@ -470,7 +470,7 @@ include_effects!(effects, :friendship, [:outdegree, :recip, :transTrip])
 result = fit_siena(data, effects; algorithm=siena_algorithm(seed=42))
 ```
 
-The conversion (via `Network.as_matrix`):
+The conversion (via `Networks.as_matrix`):
 
 - preserves **directedness** — a panel of `network(n; directed=false)`
   observations produces an undirected `DependentNetwork` with symmetric

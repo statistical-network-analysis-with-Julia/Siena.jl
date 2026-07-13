@@ -103,6 +103,76 @@ function parameter_names(effects::SienaEffects)
 end
 
 #==============================================================================#
+# Simulated Variable Set (algorithm.model_type)
+#==============================================================================#
+
+"""
+    simulated_variables(data::SienaData, model_type::Symbol)
+    simulated_variables(data::SienaData, algorithm::SienaAlgorithm)
+
+The dependent variables that take ministeps under `model_type` (see
+[`SienaAlgorithm`](@ref)), in the order of `data.dependents`:
+
+- `:standard` — every dependent variable;
+- `:networkonly` — the [`DependentNetwork`](@ref) variables only;
+- `:behavioronly` — the [`DependentBehavior`](@ref) variables only.
+
+The variables that are *not* returned stay in the [`NetworkState`](@ref) fixed at
+their period-start values: they never change, but they remain readable by the
+effects of the simulated variables (a network effect may depend on a frozen
+behavior, and vice versa).
+
+Throws if the restriction leaves no variable to simulate.
+"""
+function simulated_variables(data::SienaData, model_type::Symbol)
+    all_vars = collect(keys(data.dependents))
+    vars = if model_type == :standard
+        all_vars
+    elseif model_type == :networkonly
+        Symbol[v for v in all_vars if data.dependents[v] isa DependentNetwork]
+    elseif model_type == :behavioronly
+        Symbol[v for v in all_vars if data.dependents[v] isa DependentBehavior]
+    else
+        throw(ArgumentError("model_type must be :standard, :networkonly or " *
+                            ":behavioronly, got :$model_type"))
+    end
+    isempty(vars) && throw(ArgumentError(
+        "model_type = :$model_type leaves no dependent variable to simulate: the " *
+        "data has no " *
+        (model_type == :networkonly ? "network" : "behavior") *
+        " dependent variable (dependents: " *
+        join((":$v" for v in all_vars), ", ") * ")"))
+    return vars
+end
+
+simulated_variables(data::SienaData, algorithm::SienaAlgorithm) =
+    simulated_variables(data, algorithm.model_type)
+
+"""
+    restrict_effects(effects::SienaEffects, variables::Vector{Symbol})
+
+The effects of `variables` only: an effects object holding the entries whose *target*
+variable is simulated, sharing the [`EffectEntry`](@ref) objects with `effects` (so
+`fix`/`include` flags and estimated values stay in sync). Returns `effects` itself
+when nothing has to be dropped.
+
+This is the seam through which [`SienaAlgorithm`](@ref)'s `model_type` reaches the
+parameter vector: the rate *and* objective effects of a frozen dependent variable are
+not identified (the variable never changes, so its moments are constant), and are
+therefore removed from the model rather than estimated. Effects of a *simulated*
+variable that merely read a frozen one (e.g. a network rate effect depending on a
+behavior) are kept.
+"""
+function restrict_effects(effects::SienaEffects, variables::Vector{Symbol})
+    all(e -> target_variable(e.effect) in variables, effects.effects) && return effects
+    kept = SienaEffects(Symbol[v for v in effects.variable_names if v in variables])
+    for entry in effects.effects
+        target_variable(entry.effect) in variables && add_effect!(kept, entry)
+    end
+    return kept
+end
+
+#==============================================================================#
 # Objective Effect Set (tuple-backed, statically dispatched)
 #==============================================================================#
 
@@ -753,6 +823,11 @@ Simulate one period of network/behavior dynamics over the unit time interval.
   variable in `target_changes` has reached the target *distance* from its
   period-start state (network: Hamming distance; behavior: L1 distance), instead
   of until time 1 — RSiena's conditional simulation
+- `variables`: the dependent variables that take ministeps (`nothing`, the default:
+  all of them). Variables left out are *frozen*: they keep their period-start values
+  for the whole period, but stay in `state` and remain readable by the effects of the
+  simulated variables. This is how `SienaAlgorithm`'s `model_type` restricts the
+  model (see [`simulated_variables`](@ref))
 - `max_steps`: safety cap on the number of ministeps
 - `scores`: optional [`ScoreAccumulator`](@ref) collecting the score function of the
   simulated trajectory (unconditional simulation only)
@@ -770,6 +845,7 @@ function simulate_period!(state::NetworkState,
                              Dict{Symbol, Tuple{Vector{EffectEntry}, Vector{Float64}}}(),
                          conditional::Bool=false,
                          target_changes::Union{Nothing, Dict{Symbol, Int}}=nothing,
+                         variables::Union{Nothing, Vector{Symbol}}=nothing,
                          max_steps::Int=100_000,
                          scores::Union{Nothing, ScoreAccumulator}=nothing)
 
@@ -785,17 +861,30 @@ function simulate_period!(state::NetworkState,
         end
     end
 
-    variables = collect(keys(data.dependents))
+    # The simulated variables: only these take ministeps and only their rate
+    # machinery (per-actor rates, totals, the categorical variable draw) is built.
+    # Frozen variables stay in `state` untouched and readable.
+    vars = if variables === nothing
+        collect(keys(data.dependents))
+    else
+        isempty(variables) &&
+            throw(ArgumentError("no dependent variable to simulate"))
+        for v in variables
+            haskey(data.dependents, v) ||
+                throw(ArgumentError("unknown dependent variable :$v"))
+        end
+        variables
+    end
     empty_entries = (EffectEntry[], Float64[])
-    actor_rates = Dict(v => Float64[] for v in variables)
-    var_totals = zeros(length(variables))
+    actor_rates = Dict(v => Float64[] for v in vars)
+    var_totals = zeros(length(vars))
     # Rate caching: a variable's per-actor rates depend on the state only through
     # its non-basic rate effects. `dirty[k]` marks variables whose cached rates
     # must be recomputed; state-independent variables are computed once and stay
     # cached for the whole period.
     state_dependent = [!isempty(get(nonbasic_rates, v, empty_entries)[1])
-                       for v in variables]
-    dirty = trues(length(variables))
+                       for v in vars]
+    dirty = trues(length(vars))
 
     # Conditional simulation (RSiena): track the distance of each conditioned
     # variable from its period-start state incrementally, and stop once every
@@ -826,7 +915,7 @@ function simulate_period!(state::NetworkState,
 
         # Per-actor rates for every variable (cached; recomputed only when dirty)
         total_rate = 0.0
-        for (k, v) in enumerate(variables)
+        for (k, v) in enumerate(vars)
             if dirty[k]
                 λ = get(rate_params, v, 1.0)
                 nb_entries, nb_θ = get(nonbasic_rates, v, empty_entries)
@@ -849,7 +938,7 @@ function simulate_period!(state::NetworkState,
             # Exposure term of the rate scores: full waiting time for a completed
             # jump, censored at the end of the unit period otherwise.
             exposure = ended ? max(1.0 - t_before, 0.0) : dt
-            _accumulate_rate_exposure_scores!(scores, state, data, variables,
+            _accumulate_rate_exposure_scores!(scores, state, data, vars,
                                               actor_rates, var_totals, rate_params,
                                               exposure)
         end
@@ -857,7 +946,7 @@ function simulate_period!(state::NetworkState,
 
         # Which variable changes, and which actor moves
         k = _sample_categorical(rng, var_totals, total_rate)
-        selected_var = variables[k]
+        selected_var = vars[k]
         actor = _sample_categorical(rng, actor_rates[selected_var], var_totals[k])
 
         scores === nothing ||
@@ -940,15 +1029,25 @@ amount of change of that dependent variable (RSiena's conditional simulation): t
 period runs until the variable's distance from the period-start observation reaches
 `cond_targets[period]` instead of until time 1. Score accumulation is not supported
 with conditional simulation.
+
+`variables` restricts the ministeps to a subset of the dependent variables (the
+`model_type` restriction, see [`simulated_variables`](@ref)); the others are frozen at
+their period-start values but stay readable. `θ` must then be the parameter vector of
+the *restricted* effects (see [`restrict_effects`](@ref)).
 """
 function simulate_saom(data::SienaData, effects::SienaEffects, θ::Vector{Float64};
                       seed::Union{Int, Nothing}=nothing,
                       rng::Union{AbstractRNG, Nothing}=nothing,
                       scores::Union{Nothing, ScoreAccumulator}=nothing,
                       condvar::Union{Symbol, Nothing}=nothing,
-                      cond_targets::Union{Nothing, Vector{Int}}=nothing)
+                      cond_targets::Union{Nothing, Vector{Int}}=nothing,
+                      variables::Union{Nothing, Vector{Symbol}}=nothing)
     data.n_waves >= 2 ||
         throw(ArgumentError("simulate_saom requires at least 2 observation waves"))
+    if variables !== nothing && condvar !== nothing && condvar ∉ variables
+        throw(ArgumentError("the conditioning variable :$condvar is not simulated " *
+                            "(it is frozen by the model_type restriction)"))
+    end
     if condvar !== nothing
         scores === nothing ||
             throw(ArgumentError("score accumulation is not supported with " *
@@ -978,12 +1077,14 @@ function simulate_saom(data::SienaData, effects::SienaEffects, θ::Vector{Float6
         end
         if condvar === nothing
             result = simulate_period!(state, oset, θ_obj, rate_params, data, r;
-                                      nonbasic_rates=nonbasic, scores=scores)
+                                      nonbasic_rates=nonbasic, scores=scores,
+                                      variables=variables)
         else
             result = simulate_period!(state, oset, θ_obj, rate_params, data, r;
                                       nonbasic_rates=nonbasic, conditional=true,
                                       target_changes=Dict(condvar =>
-                                                          cond_targets[period]))
+                                                          cond_targets[period]),
+                                      variables=variables)
         end
         push!(all_results, result)
     end

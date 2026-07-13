@@ -89,12 +89,13 @@ algorithm = siena_algorithm(
     phase3_iterations = 1000,
     initial_gain = 0.2,
     min_gain = 0.0005,
-    max_iterations = 50,
+    max_iterations = nothing,
     convergence_threshold = 0.1,
     seed = 42,
     model_type = :standard,
     conditional = false,
     n_simulations = 1,
+    parallel = true,
     verbose = true
 )
 ```
@@ -108,25 +109,49 @@ algorithm = siena_algorithm(
 | `phase3_iterations` | 1000 | Number of simulations in phase 3 |
 | `initial_gain` | 0.2 | Starting gain parameter $a_0$ |
 | `min_gain` | 0.0005 | Minimum gain value |
-| `max_iterations` | 50 | Maximum iterations per phase/subphase |
+| `max_iterations` | `nothing` | Budget on the total number of phase-1/phase-2 iterations (`nothing`: no budget) |
 | `convergence_threshold` | 0.1 | Maximum per-parameter t-ratio for convergence |
 | `overall_convergence_threshold` | 0.25 | Maximum overall convergence ratio (`tconv.max`) |
 | `seed` | nothing | Random seed for reproducibility |
-| `model_type` | `:standard` | `:standard`, `:behavioronly`, or `:networkonly` |
+| `model_type` | `:standard` | Which dependent variables co-evolve: `:standard`, `:networkonly` or `:behavioronly` |
 | `conditional` | false | Use conditional estimation |
 | `condvar` | nothing | Conditioning variable for conditional estimation |
-| `n_simulations` | 1 | Simulations per iteration |
+| `n_simulations` | 1 | Simulations averaged into each Robbins-Monro iteration |
+| `parallel` | true | Run the independent simulations (phase 3, derivatives) multi-threaded |
 | `derivative_method` | `:score` | `:score` (score-function) or `:finite_difference` |
 | `derivative_sims` | 30 | Simulations per finite-difference derivative estimate |
 | `verbose` | true | Print progress during estimation |
 
 ### Model Types
 
-| Type | Description | Use When |
-|------|-------------|----------|
-| `:standard` | Joint network and behavior model | Co-evolution analysis |
-| `:networkonly` | Network model only | No behavior variables |
-| `:behavioronly` | Behavior model only | Network is exogenous |
+`model_type` selects which dependent variables take ministeps. The variables it
+leaves out are *frozen*: they stay in the simulation state at their period-start
+values and are still read by the effects of the simulated variables (a network
+effect may depend on a frozen behavior, and vice versa), but they never change.
+Because a frozen variable's moments are then constant, its own rate and objective
+effects are not identified and are dropped from the estimated parameter vector.
+
+| Type | Simulated | Frozen | Use When |
+|------|-----------|--------|----------|
+| `:standard` | every dependent variable | — | Co-evolution analysis |
+| `:networkonly` | the network variables | the behavior variables | Behavior is exogenous |
+| `:behavioronly` | the behavior variables | the networks | Network is exogenous |
+
+```julia
+# Network dynamics with the behavior held fixed: only :net effects are estimated,
+# but network effects may still read :beh.
+algorithm = siena_algorithm(model_type = :networkonly)
+```
+
+Use [`simulated_variables`](@ref) to see which variables a `model_type` simulates
+for a given data set. `condvar` (conditional estimation) must be one of them.
+
+!!! warning "Not RSiena's `modelType`"
+    RSiena's `modelType` selects the *kind of network model* driving a ministep
+    (1 standard actor-oriented, 2 forcing, 3 initiative, ...), not a subset of the
+    dependent variables. Those forcing/initiative model types are **not implemented**
+    in Siena.jl — every ministep is the standard actor-oriented one — so a Siena.jl
+    `model_type` value never corresponds to an RSiena `modelType` value.
 
 ### Tuning for Difficult Models
 

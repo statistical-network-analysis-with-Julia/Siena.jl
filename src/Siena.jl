@@ -24,8 +24,9 @@ Markov chain model of network evolution.
 
 ## Model Specification
 - `get_effects()`: Create effects object from data
-- `include_effects!()`: Add effects to the model
-- `include_interaction!()`: Add interaction effects
+- `include_effects!()`: Add effects to the model (a requested effect that does not
+  exist is an error, not a warning)
+- `include_interaction!()`: Add interaction effects — **not implemented, throws**
 
 ## Estimation
 - `fit_siena()`: Estimate model parameters (main estimation function;
@@ -33,7 +34,7 @@ Markov chain model of network evolution.
 - `siena_algorithm()`: Configure estimation algorithm
 
 ## Model Assessment
-- `gof()`: Goodness of fit testing (method of the shared `Network.gof` generic)
+- `gof()`: Goodness of fit testing (method of the shared `Networks.gof` generic)
 - `siena_gof()`: Goodness of fit testing (RSiena-style, detailed result)
 - `siena_time_test()`: Test for time heterogeneity
 
@@ -74,11 +75,17 @@ using StatsAPI: coef, stderror, vcov, confint
 using StatsBase
 
 # Shared result-presentation infrastructure (coefficient tables, GOF containers)
-using Network: print_coeftable, format_pvalue, signif_code
+using Networks: print_coeftable, format_pvalue, signif_code
 # The ONE ecosystem-wide `gof` generic and the shared GOF result types: Siena
 # adds methods/conversions and re-exports the names, so `using Siena, Network`
 # never produces colliding exports.
-import Network: gof, GOFResult, GOFStatistic
+import Networks: gof, GOFResult, GOFStatistic
+
+# The shared result-metadata protocol (Networks.jl `src/results.jl`): the
+# generic accessors that say what a fit actually did. Imported by name because
+# Siena adds methods for `SienaResult`; `fit_metadata(fit)` collects them.
+import Networks: estimand, objective, is_exact, se_method, missing_method,
+                 approximations
 
 # Core types
 export NodeSet, SienaData
@@ -107,7 +114,7 @@ export OutdegreeEffect, ReciprocityEffect
 # Structural network effects - Triadic
 export TransitiveTripletsEffect, TransitiveTriadsEffect, TransitiveTiesEffect
 export TransitiveMediatedTripletsEffect, TransitiveRecipTripletsEffect
-export CyclicTripletsEffect, BalanceEffect, BetweennessEffect
+export CyclicTripletsEffect, BalanceSimpleEffect, BetweennessEffect
 export NbrDist2Effect, DenseTriadsEffect, SharedInEffect, SharedOutEffect
 
 # Structural network effects - Degree-based
@@ -141,7 +148,7 @@ export LinearShapeEffect, QuadraticShapeEffect, CubicShapeEffect
 # Behavior effects - Influence
 export AverageAlterEffect, TotalAlterEffect, AverageSimilarityEffect, TotalSimilarityEffect
 export AverageInAlterEffect, AverageRecipAlterEffect
-export AverageAttHigherEffect, AverageAttLowerEffect
+export AverageAttHigherSimpleEffect, AverageAttLowerSimpleEffect
 export AverageAlterDist2Effect, TotalInAlterEffect
 
 # Behavior effects - Degree-based
@@ -201,6 +208,7 @@ export simulate_saom, simulate_period!, snapshot
 export compute_objective, compute_network_choice_probs, compute_behavior_choice_probs
 export SimulationResult
 export ParameterMap, build_param_map, parameter_names, objective_theta, basic_rate
+export simulated_variables, restrict_effects
 export ObjectiveEffectSet, build_objective_set
 export ScoreAccumulator, reset_scores!
 
@@ -216,7 +224,7 @@ export IndegreeDistribution, OutdegreeDistribution
 export TriadCensus, GeodesicDistribution, BehaviorDistribution
 export siena_gof, SienaGOFResult, compute_gof_statistic
 export siena_gof_indegree, siena_gof_outdegree, siena_gof_triad, siena_gof_behavior
-# Shared GOF interface (re-exports of the Network.jl names: `gof(fit, ...)`
+# Shared GOF interface (re-exports of the Networks.jl names: `gof(fit, ...)`
 # returns the ecosystem-wide `GOFResult`)
 export gof, GOFResult, GOFStatistic
 
@@ -240,7 +248,7 @@ include("gof.jl")
     siena_data()
 
 Create an empty SienaData object.
-Equivalent to R's sienaDataCreate() without arguments.
+Counterpart of R's sienaDataCreate() without arguments.
 """
 siena_data() = SienaData()
 
@@ -248,7 +256,7 @@ siena_data() = SienaData()
     siena_nodeset(n::Int; names::Vector{String}=String[], id::Symbol=:actors)
 
 Create a node set.
-Equivalent to R's sienaNodeSet().
+Counterpart of R's sienaNodeSet().
 """
 siena_nodeset(n::Int; names::Vector{String}=String[], id::Symbol=:actors) =
     NodeSet(n; names=names, id=id)
@@ -257,7 +265,7 @@ siena_nodeset(n::Int; names::Vector{String}=String[], id::Symbol=:actors) =
     siena_dependent(name::Symbol, networks::Vector{<:AbstractMatrix}; kwargs...)
 
 Create a dependent network variable.
-Equivalent to R's sienaDependent() for networks.
+Counterpart of R's sienaDependent() for networks.
 
 Matrices may contain RSiena-style structural codes (default: `10` =
 structural zero, `11` = structural one, configurable via the
@@ -271,7 +279,7 @@ siena_dependent(name::Symbol, networks::Vector{<:AbstractMatrix}; kwargs...) =
     siena_dependent(name::Symbol, values::Vector{<:AbstractVector}; kwargs...)
 
 Create a dependent behavior variable.
-Equivalent to R's sienaDependent() for behavior.
+Counterpart of R's sienaDependent() for behavior.
 """
 siena_dependent(name::Symbol, values::Vector{<:AbstractVector{<:Integer}}; kwargs...) =
     DependentBehavior(name, values; kwargs...)
@@ -280,7 +288,7 @@ siena_dependent(name::Symbol, values::Vector{<:AbstractVector{<:Integer}}; kwarg
     constant_covariate(name::Symbol, values::AbstractVector; kwargs...)
 
 Create a constant covariate.
-Equivalent to R's coCovar().
+Counterpart of R's coCovar().
 """
 constant_covariate(name::Symbol, values::AbstractVector; kwargs...) =
     ConstantCovariate(name, values; kwargs...)
@@ -289,7 +297,7 @@ constant_covariate(name::Symbol, values::AbstractVector; kwargs...) =
     varying_covariate(name::Symbol, values::Vector{<:AbstractVector}; kwargs...)
 
 Create a varying covariate.
-Equivalent to R's varCovar().
+Counterpart of R's varCovar().
 """
 varying_covariate(name::Symbol, values::Vector{<:AbstractVector}; kwargs...) =
     VaryingCovariate(name, values; kwargs...)
@@ -298,7 +306,7 @@ varying_covariate(name::Symbol, values::Vector{<:AbstractVector}; kwargs...) =
     constant_dyad_covariate(name::Symbol, values::AbstractMatrix; kwargs...)
 
 Create a constant dyadic covariate.
-Equivalent to R's coDyadCovar().
+Counterpart of R's coDyadCovar().
 """
 constant_dyad_covariate(name::Symbol, values::AbstractMatrix; kwargs...) =
     ConstantDyadCovariate(name, values; kwargs...)
@@ -307,7 +315,7 @@ constant_dyad_covariate(name::Symbol, values::AbstractMatrix; kwargs...) =
     varying_dyad_covariate(name::Symbol, values::Vector{<:AbstractMatrix}; kwargs...)
 
 Create a varying dyadic covariate.
-Equivalent to R's varDyadCovar().
+Counterpart of R's varDyadCovar().
 """
 varying_dyad_covariate(name::Symbol, values::Vector{<:AbstractMatrix}; kwargs...) =
     VaryingDyadCovariate(name, values; kwargs...)
@@ -320,7 +328,7 @@ varying_dyad_covariate(name::Symbol, values::Vector{<:AbstractMatrix}; kwargs...
     get_effects(data::SienaData)
 
 Create a SienaEffects object with default effects for the data.
-Equivalent to R's getEffects().
+Counterpart of R's getEffects().
 
 This creates rate effects for each period and basic structural effects
 (but doesn't include them by default).
@@ -407,10 +415,19 @@ end
 
 """
     include_effects!(effects::SienaEffects, variable::Symbol, effect_names::Vector{Symbol};
-                    initial_value=nothing, fix::Bool=false, test::Bool=false)
+                    initial_value=nothing, fix::Bool=false, test::Bool=false,
+                    strict::Bool=true)
 
-Include effects in the model by name.
-Equivalent to R's includeEffects().
+Include effects in the model by short name.
+Counterpart of R's `includeEffects()`.
+
+An effect name that matches no entry for `variable` is an error: a model that
+silently drops an effect the analyst asked for is not reproducible. The error lists
+the names that are available for the variable, which also catches typos and effects
+that `get_effects` does not create for the given data.
+
+Pass `strict=false` to opt out and get the old warn-and-skip behaviour — the
+unmatched names are then reported with a warning and simply not included.
 
 # Arguments
 - `effects`: The effects object
@@ -419,10 +436,18 @@ Equivalent to R's includeEffects().
 - `initial_value`: Initial parameter value (`nothing` keeps the entry's current value)
 - `fix`: Whether to fix the parameter
 - `test`: Whether to perform score test
+- `strict`: Throw (default) rather than warn when a requested effect does not exist
+
+# Examples
+```julia
+include_effects!(effects, :friendship, [:outdegree, :recip])
+include_effects!(effects, :friendship, [:transTrpt])   # throws: typo, did you mean transTrip?
+include_effects!(effects, :friendship, [:transTrpt]; strict=false)   # warns, includes nothing
+```
 """
 function include_effects!(effects::SienaEffects, variable::Symbol, effect_names::Vector{Symbol};
                          initial_value::Union{Nothing, Float64}=nothing,
-                         fix::Bool=false, test::Bool=false)
+                         fix::Bool=false, test::Bool=false, strict::Bool=true)
     matched = Set{Symbol}()
     for entry in effects.effects
         # Use shortname (user-facing name) for matching
@@ -436,8 +461,21 @@ function include_effects!(effects::SienaEffects, variable::Symbol, effect_names:
         end
     end
     missed = setdiff(Set(effect_names), matched)
-    isempty(missed) ||
-        @warn "effects not found for variable $variable: $(collect(missed))"
+    if !isempty(missed)
+        # Sorted for a deterministic message.
+        missing_names = sort!(collect(missed); by=String)
+        if strict
+            available = sort!([entry.shortname for entry in effects.effects
+                               if target_variable(entry.effect) == variable])
+            throw(ArgumentError(
+                "no effect(s) $(missing_names) for variable :$variable. " *
+                "Available effects for :$variable: $(available). " *
+                "(Pass `strict=false` to skip unavailable effects with a warning " *
+                "instead of this error.)"))
+        end
+        @warn "effects not found for variable :$variable and NOT included: " *
+              "$(missing_names)"
+    end
     effects
 end
 
@@ -445,14 +483,37 @@ end
     include_interaction!(effects::SienaEffects, variable::Symbol,
                         effect1::Symbol, effect2::Symbol; kwargs...)
 
-Include an interaction effect.
-Equivalent to R's includeInteraction().
+Include an interaction effect. **Not implemented — always throws.**
+
+RSiena's `includeInteraction()` has no counterpart here yet: there is no interaction
+effect type, so no interaction can be added to the model. Earlier versions warned and
+returned the effects object unchanged, which let a model be estimated and published
+without the interaction the analyst had asked for; it now throws instead.
+
+Workaround: define the product effect you need as a concrete `NetworkEffect` /
+`BehaviorEffect` subtype implementing `evaluate_actor` and add it with
+`Siena.add_effect!(effects, EffectEntry(MyEffect(...); include=true))`.
 """
 function include_interaction!(effects::SienaEffects, variable::Symbol,
                              effect1::Symbol, effect2::Symbol; kwargs...)
-    # Simplified: would need to create actual interaction effects
-    @warn "Interaction effects not yet fully implemented"
-    effects
+    throw(ArgumentError(
+        "include_interaction! is not implemented: the interaction of :$effect1 and " *
+        ":$effect2 for variable :$variable cannot be added to the model. Define the " *
+        "interaction as a concrete effect type implementing `evaluate_actor` and add " *
+        "it with `Siena.add_effect!`."))
 end
+
+#==============================================================================#
+# Deprecations
+#==============================================================================#
+
+# Effects whose formula is *not* the RSiena formula of the same name have been
+# renamed with a `Simple` suffix (type name and short name alike), so that an RSiena
+# short name always denotes a numerically equivalent implementation. The old type
+# names keep working for one release cycle; the old *short names* (`:balance`,
+# `:avAttHigher`, `:avAttLower`) are gone and are reserved for the real formulas.
+Base.@deprecate_binding BalanceEffect BalanceSimpleEffect
+Base.@deprecate_binding AverageAttHigherEffect AverageAttHigherSimpleEffect
+Base.@deprecate_binding AverageAttLowerEffect AverageAttLowerSimpleEffect
 
 end # module

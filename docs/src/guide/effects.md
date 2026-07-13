@@ -137,7 +137,7 @@ These effects depend only on the network topology, not on covariates.
 | [`TransitiveMediatedTripletsEffect`](@ref) | `transMedTrip` | Mediated transitive triplets |
 | [`TransitiveRecipTripletsEffect`](@ref) | `transRecTrip` | Reciprocated transitive triplets |
 | [`CyclicTripletsEffect`](@ref) | `cycle3` | Generalized 3-cycles |
-| [`BalanceEffect`](@ref) | `balance` | Structural balance |
+| [`BalanceSimpleEffect`](@ref) | `balanceSimple` | Structural balance (simplified: not RSiena's `balance`) |
 | [`BetweennessEffect`](@ref) | `between` | Betweenness centrality tendency |
 | [`NbrDist2Effect`](@ref) | `nbrDist2` | Number of actors at distance 2 |
 | [`DenseTriadsEffect`](@ref) | `denseTriads` | Triads with 5+ ties |
@@ -291,8 +291,8 @@ These capture how an actor's network position influences their behavior:
 | [`TotalSimilarityEffect`](@ref) | `totSim` | Total similarity with alters |
 | [`AverageInAlterEffect`](@ref) | `avInAlt` | Average behavior of in-alters |
 | [`AverageRecipAlterEffect`](@ref) | `avRecAlt` | Average behavior of reciprocal alters |
-| [`AverageAttHigherEffect`](@ref) | `avAttHigher` | Fraction of alters with higher behavior |
-| [`AverageAttLowerEffect`](@ref) | `avAttLower` | Fraction of alters with lower behavior |
+| [`AverageAttHigherSimpleEffect`](@ref) | `avAttHigherSimple` | Fraction of alters with higher behavior (simplified: not RSiena's `avAttHigher`) |
+| [`AverageAttLowerSimpleEffect`](@ref) | `avAttLowerSimple` | Fraction of alters with lower behavior (simplified: not RSiena's `avAttLower`) |
 | [`AverageAlterDist2Effect`](@ref) | `avAltDist2` | Average behavior at distance 2 |
 | [`TotalInAlterEffect`](@ref) | `totInAlt` | Total behavior of in-alters |
 

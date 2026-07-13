@@ -50,15 +50,15 @@ SAOMs are widely used in:
 - **RSiena-compatible API**: `fit_siena` is the primary entry point, with familiar RSiena names kept as aliases (`siena07`, `get_effects`, `include_effects!`)
 - **Flexible data structures**: Support for one-mode, two-mode, and multivariate networks, including RSiena-style structural zeros/ones (10/11 coding)
 - **Composition change**: Handle actors entering or leaving the network
-- **Network.jl bridge**: With Network.jl loaded, `DependentNetwork` and the dyadic
+- **Networks.jl bridge**: With Networks.jl loaded, `DependentNetwork` and the dyadic
   covariates accept `Network` objects directly (package extension, no hard
-  dependency) — see [Using Network.jl objects](getting_started.md#Using-Network.jl-objects)
+  dependency) — see [Using Networks.jl objects](getting_started.md#Using-Networks.jl-objects)
 
 ## Installation
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Network.jl")
+Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Networks.jl")
 Pkg.add(url="https://github.com/statistical-network-analysis-with-Julia/Siena.jl")
 ```
 

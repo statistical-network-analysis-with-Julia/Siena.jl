@@ -75,14 +75,19 @@ Structurally determined dyads behave as in RSiena's first-order semantics:
 they are excluded from the candidate sets of ministep simulation for the
 period whose *start* wave marks them (an actor can never toggle them), they
 are excluded from the target and simulated moment statistics, and they do
-not count toward observed change in rate statistics. Unlike RSiena, no
-correction is applied when a dyad's structural status changes between
-waves beyond using the period-start mask.
+not count toward observed change in rate statistics.
+
+!!! warning "Structural status that changes between waves"
+    Only the period-start mask is used. When a dyad's structural status *changes*
+    from one wave to the next, RSiena applies a further correction to the
+    statistics that is not implemented here, so results on such data are not
+    numerically equivalent to RSiena's. Data whose structural masks are the same
+    in every wave — the common case — are unaffected.
 
 # Interoperability
-When Network.jl is loaded, the `SienaNetworkExt` package extension adds a
+When Networks.jl is loaded, the `SienaNetworkExt` package extension adds a
 constructor taking a `Vector` of `Network` objects (one per wave); adjacency
-matrices are extracted with `Network.as_matrix`, directedness and self-loop
+matrices are extracted with `Networks.as_matrix`, directedness and self-loop
 settings are taken from the networks, and the waves are validated to share
 the same node set. See the extension's docstring for details.
 """
@@ -422,30 +427,90 @@ Tracks changes in network composition (actors joining/leaving).
 # Fields
 - `changes::Vector{Tuple{Int, Int, Symbol}}`: (actor, wave, action) tuples
   where action is :join or :leave
+
+# Validation
+A composition-change sequence describes a state machine per actor, and an
+inconsistent sequence would silently produce a wrong presence pattern (and hence
+wrong moment statistics), so it is rejected on construction:
+
+- `action` must be `:join` or `:leave`;
+- `actor` and `wave` must be positive (their upper bounds depend on the data and are
+  checked by [`add_composition_change!`](@ref), which knows the number of actors and
+  waves);
+- an actor cannot have two events at the same wave;
+- an actor's events must alternate: joining an actor that has already joined, or
+  removing one that has already left, is contradictory and throws.
+
+An actor's first event fixes its initial state: a first `:join` at wave `w` means the
+actor is absent before `w`, a first `:leave` at wave `w` means it is present before
+`w` (see [`is_present`](@ref)).
 """
 struct CompositionChange
     changes::Vector{Tuple{Int, Int, Symbol}}
 
     function CompositionChange(changes::Vector{Tuple{Int, Int, Symbol}}=Tuple{Int, Int, Symbol}[])
-        for (_, _, action) in changes
-            if action ∉ (:join, :leave)
-                throw(ArgumentError("Action must be :join or :leave"))
-            end
+        for (actor, wave, action) in changes
+            _validate_change_event(actor, wave, action)
+        end
+        for actor in unique(a for (a, _, _) in changes)
+            _validate_actor_history(actor, [(w, act) for (a, w, act) in changes
+                                            if a == actor])
         end
         new(changes)
     end
 end
 
+# One event, in isolation: valid action and positive actor/wave. The upper bounds
+# need the data (see `add_composition_change!`).
+function _validate_change_event(actor::Int, wave::Int, action::Symbol)
+    action ∈ (:join, :leave) ||
+        throw(ArgumentError("composition change: action must be :join or :leave, " *
+                            "got :$action (actor $actor, wave $wave)"))
+    actor >= 1 ||
+        throw(ArgumentError("composition change: actor must be >= 1, got $actor " *
+                            "(:$action at wave $wave)"))
+    wave >= 1 ||
+        throw(ArgumentError("composition change: wave must be >= 1, got $wave " *
+                            "(:$action of actor $actor)"))
+    return nothing
+end
+
+# One actor's event history, as (wave, action) pairs: at most one event per wave, and
+# the events must alternate join/leave — an actor cannot join while already present or
+# leave while already absent.
+function _validate_actor_history(actor::Int, events::Vector{Tuple{Int, Symbol}})
+    sorted = sort(events; by=first)
+    for k in 2:length(sorted)
+        (w_prev, a_prev) = sorted[k - 1]
+        (w, a) = sorted[k]
+        w == w_prev &&
+            throw(ArgumentError("composition change: actor $actor has two events at " *
+                                "wave $w (:$a_prev and :$a); an actor can join or " *
+                                "leave at most once per wave"))
+        a == a_prev &&
+            throw(ArgumentError("composition change: actor $actor is set to :$a at " *
+                                "wave $w_prev and again at wave $w with no " *
+                                "intervening :$(a == :join ? :leave : :join); join " *
+                                "and leave events must alternate"))
+    end
+    return nothing
+end
+
 """
     add_change!(cc::CompositionChange, actor::Int, wave::Int, action::Symbol)
 
-Add a composition change event.
+Add a composition change event, validating it against the actor's existing history
+(see [`CompositionChange`](@ref)). A contradictory or duplicate event throws and
+leaves `cc` unchanged.
 """
 function add_change!(cc::CompositionChange, actor::Int, wave::Int, action::Symbol)
-    if action ∉ (:join, :leave)
-        throw(ArgumentError("Action must be :join or :leave"))
-    end
+    _validate_change_event(actor, wave, action)
+    history = [(w, act) for (a, w, act) in cc.changes if a == actor]
+    push!(history, (wave, action))
+    # Validate before mutating, so a rejected event leaves `cc` untouched.
+    _validate_actor_history(actor, history)
     push!(cc.changes, (actor, wave, action))
+    return cc
 end
 
 """
@@ -542,7 +607,7 @@ end
     add_composition_change!(data::SienaData, cc::CompositionChange)
 
 Attach composition-change information (actors joining/leaving; see
-[`CompositionChange`](@ref)) to the data. Equivalent to supplying a
+[`CompositionChange`](@ref)) to the data. The counterpart of supplying a
 `sienaCompositionChange` object in RSiena.
 
 During estimation, actors are treated with RSiena's method-of-moments
@@ -551,8 +616,28 @@ present at both of its endpoint waves. Absent actors get no ministep
 opportunities, their dyads are excluded from the candidate sets, and their
 rows/columns are excluded from the target and simulated moment statistics
 and from the observed change (rate) distances.
+
+The data fix the ranges the events must fall in, so this is where they are checked:
+every actor must be an actor of the data (`1:n_actors`) and every wave an observation
+wave (`1:n_waves`). An out-of-range actor or wave throws — silently ignoring it would
+mean estimating a model whose composition differs from the one that was requested.
+The internal consistency of the sequence itself is checked earlier, by
+[`CompositionChange`](@ref)/[`add_change!`](@ref).
 """
 function add_composition_change!(data::SienaData, cc::CompositionChange)
+    n = _actor_count(data)
+    n_w = data.n_waves
+    n_w >= 1 || throw(ArgumentError(
+        "cannot attach composition change: the data have no observation waves yet " *
+        "(add the dependent variables first)"))
+    for (actor, wave, action) in cc.changes
+        actor <= n || throw(ArgumentError(
+            "composition change: actor $actor (:$action at wave $wave) is out of " *
+            "range — the data have $n actors"))
+        wave <= n_w || throw(ArgumentError(
+            "composition change: wave $wave (:$action of actor $actor) is out of " *
+            "range — the data have $n_w observation waves"))
+    end
     data.composition_change = cc
     data
 end

@@ -282,7 +282,7 @@ SienaGOFResult
 
 ### GOFResult
 
-`GOFResult` is the ecosystem-wide GOF container from Network.jl (re-exported
+`GOFResult` is the ecosystem-wide GOF container from Networks.jl (re-exported
 by Siena). It is returned by the shared [`gof`](@ref) generic, and any
 [`SienaGOFResult`](@ref) can be converted to it.
 

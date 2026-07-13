@@ -227,23 +227,30 @@ function evaluate_actor(e::AverageRecipAlterEffect, state::NetworkState,
 end
 
 """
-    AverageAttHigherEffect <: BehaviorEffect
+    AverageAttHigherSimpleEffect <: BehaviorEffect
 
 Proportion of alters with strictly higher behavior:
 ``s_i = x_{i+}^{-1} \\#\\{j : x_{ij} = 1, z_j > z_i\\}``.
-(Simplified relative to RSiena's avAttHigher.)
+
+!!! warning "Not RSiena's avAttHigher"
+    This is a *simplified* attraction-to-higher-alters effect, not RSiena's
+    `avAttHigher`, whose statistic is a different function of the behavior
+    differences. Its short name is therefore `:avAttHigherSimple`: the RSiena short
+    name `:avAttHigher` is reserved for a numerically equivalent implementation and
+    is deliberately not defined. Estimates from this effect are not comparable with
+    RSiena's `avAttHigher` estimates.
 """
-struct AverageAttHigherEffect <: BehaviorEffect
+struct AverageAttHigherSimpleEffect <: BehaviorEffect
     variable::Symbol
     network::Symbol
 end
 
-effect_name(::AverageAttHigherEffect) = :avAttHigher
-effect_type(::AverageAttHigherEffect) = :eval
-target_variable(e::AverageAttHigherEffect) = e.variable
-interaction_with(e::AverageAttHigherEffect) = e.network
+effect_name(::AverageAttHigherSimpleEffect) = :avAttHigherSimple
+effect_type(::AverageAttHigherSimpleEffect) = :eval
+target_variable(e::AverageAttHigherSimpleEffect) = e.variable
+interaction_with(e::AverageAttHigherSimpleEffect) = e.network
 
-function evaluate_actor(e::AverageAttHigherEffect, state::NetworkState,
+function evaluate_actor(e::AverageAttHigherSimpleEffect, state::NetworkState,
                         data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]
@@ -260,23 +267,30 @@ function evaluate_actor(e::AverageAttHigherEffect, state::NetworkState,
 end
 
 """
-    AverageAttLowerEffect <: BehaviorEffect
+    AverageAttLowerSimpleEffect <: BehaviorEffect
 
 Proportion of alters with strictly lower behavior:
 ``s_i = x_{i+}^{-1} \\#\\{j : x_{ij} = 1, z_j < z_i\\}``.
-(Simplified relative to RSiena's avAttLower.)
+
+!!! warning "Not RSiena's avAttLower"
+    This is a *simplified* attraction-to-lower-alters effect, not RSiena's
+    `avAttLower`, whose statistic is a different function of the behavior
+    differences. Its short name is therefore `:avAttLowerSimple`: the RSiena short
+    name `:avAttLower` is reserved for a numerically equivalent implementation and is
+    deliberately not defined. Estimates from this effect are not comparable with
+    RSiena's `avAttLower` estimates.
 """
-struct AverageAttLowerEffect <: BehaviorEffect
+struct AverageAttLowerSimpleEffect <: BehaviorEffect
     variable::Symbol
     network::Symbol
 end
 
-effect_name(::AverageAttLowerEffect) = :avAttLower
-effect_type(::AverageAttLowerEffect) = :eval
-target_variable(e::AverageAttLowerEffect) = e.variable
-interaction_with(e::AverageAttLowerEffect) = e.network
+effect_name(::AverageAttLowerSimpleEffect) = :avAttLowerSimple
+effect_type(::AverageAttLowerSimpleEffect) = :eval
+target_variable(e::AverageAttLowerSimpleEffect) = e.variable
+interaction_with(e::AverageAttLowerSimpleEffect) = e.network
 
-function evaluate_actor(e::AverageAttLowerEffect, state::NetworkState,
+function evaluate_actor(e::AverageAttLowerSimpleEffect, state::NetworkState,
                         data::SienaData, actor::Int)
     beh = state.behaviors[e.variable]
     net = state.networks[e.network]

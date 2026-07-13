@@ -357,23 +357,30 @@ function compute_statistic(e::CyclicTripletsEffect, state::NetworkState, data::S
 end
 
 """
-    BalanceEffect <: NetworkEffect
+    BalanceSimpleEffect <: NetworkEffect
 
-Structural balance (similarity of outgoing tie patterns with alters):
+Structural balance (similarity of outgoing tie patterns with alters), with the
+similarity sum normalized by ``n-2``:
 ``s_i = \\frac{1}{n-2} \\sum_j x_{ij} \\sum_{h \\ne i,j} (1 - |x_{ih} - x_{jh}|)``.
 
-Note: RSiena subtracts a data-dependent constant ``b_0``; here the sum is normalized
-by ``n-2`` instead. RSiena: balance
+!!! warning "Not RSiena's balance"
+    RSiena's `balance` subtracts a data-dependent centering constant ``b_0``
+    (the mean tie-value dissimilarity over the observations) from each term
+    instead of dividing by ``n-2``, so its statistic — and hence its parameter —
+    is on a different scale. The short name here is therefore `:balanceSimple`:
+    `:balance` is reserved for a numerically equivalent implementation and is
+    deliberately not defined. Estimates from this effect are not comparable with
+    RSiena's `balance` estimates.
 """
-struct BalanceEffect <: NetworkEffect
+struct BalanceSimpleEffect <: NetworkEffect
     variable::Symbol
 end
 
-effect_name(::BalanceEffect) = :balance
-effect_type(::BalanceEffect) = :eval
-target_variable(e::BalanceEffect) = e.variable
+effect_name(::BalanceSimpleEffect) = :balanceSimple
+effect_type(::BalanceSimpleEffect) = :eval
+target_variable(e::BalanceSimpleEffect) = e.variable
 
-function evaluate_actor(e::BalanceEffect, state::NetworkState,
+function evaluate_actor(e::BalanceSimpleEffect, state::NetworkState,
                         data::SienaData, actor::Int)
     net = state.networks[e.variable]
     n = size(net, 1)

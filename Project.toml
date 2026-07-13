@@ -1,13 +1,13 @@
 name = "Siena"
 uuid = "23c1be1b-04c0-4290-87a8-83c04253ada6"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Statistical Network Analysis with Julia"]
 
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-Network = "027a387e-e55f-4537-a155-5037e5a23bdb"
+Networks = "027a387e-e55f-4537-a155-5037e5a23bdb"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
@@ -16,16 +16,16 @@ StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [extensions]
-SienaNetworkExt = "Network"
+SienaNetworkExt = "Networks"
 
 [sources]
-Network = {path = "../Network.jl"}
+Networks = {path = "../Networks.jl"}
 
 [compat]
 DataFrames = "1.6"
 Distributions = "0.25"
 LinearAlgebra = "1.12.0"
-Network = "0.1"
+Networks = "0.2"
 Printf = "1.11.0"
 Random = "1.11.0"
 SparseArrays = "1.12.0"

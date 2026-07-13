@@ -50,13 +50,26 @@ Three-phase Robbins-Monro algorithm in `siena07`:
 
 Conditional estimation (`SienaAlgorithm(conditional=true)`, RSiena's `cond=TRUE`) conditions every simulated period on the observed amount of change of one dependent variable (`condvar`, defaulting to the only one): periods run until the conditioning variable's distance from the period-start observation reaches the observed distance instead of until time 1. The conditioned variable's basic rate entries are fixed out of the moment equations and estimated from phase-3 stopping times (`rate_estimates`); the derivative estimator falls back to finite differences. Composition change attached via `add_composition_change!(data, cc)` uses RSiena's MoM semantics: actors contribute to a period only when present at both endpoint waves (no ministeps, dyads out of candidate sets, rows/columns out of the moment statistics and rate distances).
 
-Phase-3 simulations and derivative estimation are embarrassingly parallel and run under `Threads.@threads`: seeds are pre-drawn from the algorithm RNG in serial order and each simulation runs on its own seeded RNG writing to its own result slot, so results are bitwise identical regardless of `JULIA_NUM_THREADS`.
+Phase-3 simulations and derivative estimation are embarrassingly parallel and run under `Threads.@threads` when `SienaAlgorithm(parallel=true)` (the default) and strictly serially on the calling thread when `parallel=false` (both go through the `_run_simulations!` helper): seeds are pre-drawn from the algorithm RNG in serial order and each simulation runs on its own seeded RNG writing to its own result slot, so results are bitwise identical regardless of `JULIA_NUM_THREADS` or `parallel`. Every algorithm field changes execution: `n_simulations` is the number of simulations averaged into each Robbins-Monro iteration, `max_iterations` (default `nothing`) is a budget on the phase-1/phase-2 iterations, and `SienaResult` reports back what actually ran (`n_iterations`, `n_simulations_run`, `n_threads_used`, `model_type`).
+
+`model_type` (`:standard` / `:networkonly` / `:behavioronly`) selects which dependent variables co-evolve. The seam is a simulated-variable vector computed once per fit by `simulated_variables(data, model_type)` and threaded through `fit_siena` -> `_simulate_moments`/`estimate_derivative_matrix*` -> `simulate_saom` -> `simulate_period!(; variables=...)`, where it replaces `collect(keys(data.dependents))` as the vector the rate machinery (per-actor rates, totals, dirty flags, categorical variable draw) is indexed off. Non-simulated dependents stay in `NetworkState` at their period-start values: frozen, but still readable by the effects of the simulated variables (a network rate/objective effect may depend on a frozen behavior, and vice versa). Their own rate and objective effects are unidentified (constant moments) and leave the model via `restrict_effects(effects, sim_vars)`, which returns an effects object sharing the `EffectEntry` objects — the parameter map, targets, simulations, `rate_estimates` and `SienaResult.effects` are all built from it, so no other code needs a `model_type` branch. `algorithm.condvar` must be a simulated variable. Note: this is *not* RSiena's `modelType` (forcing/initiative network models, not implemented) — the docstring carries a warning admonition saying so.
 
 Result type `SienaResult` provides `coef`, `stderror`, `vcov`, `confint` (StatsAPI methods).
 
 ### Algorithm (`src/algorithm.jl`)
 
 `SienaAlgorithm` configures estimation. `GainSequence` manages Robbins-Monro gain decay. `PhaseState` tracks phase/subphase progression. `ConvergenceStats` checks t-ratios against threshold.
+
+### Golden fixtures (RSiena)
+
+Two testsets, and the difference between them matters:
+
+- **"Golden target statistics vs RSiena (s50)"** — target statistics. These are a *deterministic* function of the observed waves, so they prove the effect FORMULAS and nothing about the estimator. Compared at 2e-4.
+- **"Golden: RSiena siena07 fitted output (s50)"** — what `siena07` actually returns. `test/fixtures/s50_siena07.toml` freezes a real RSiena 1.6.6 fit (coefficients, SEs, t-ratios, `tconv.max`, derivative matrix, phase-3 covariance); `test/fixtures/r/s50_siena07.R` regenerates it. Loaded with Networks.jl's `load_golden`.
+
+  Both sides are Monte-Carlo MoM estimators, so a single-run-vs-single-run comparison could only carry a tolerance too wide to test anything. The R script therefore **refits under five further RSiena seeds and freezes RSiena's own seed-to-seed sd** (`rsiena_seed_sd`) into the fixture — the tolerances are multiples of that measured width — and the Julia testset compares the **mean of five Siena.jl fits** (Monte-Carlo error sd/√5) rather than one. Rate and objective parameters get separate tolerances because their noise differs by an order of magnitude; lumping them would force one loose tolerance onto all eight.
+
+  **What it found, and what is therefore expected to stay red-adjacent:** Siena.jl's coefficients agree with RSiena's (every parameter within 0.28 RSiena SE; largest objective gap 0.032 on reciprocity), but its Robbins-Monro procedure is **3–19× noisier**, does **not** reach RSiena's convergence standard on this model (`tconv.max` 0.26–0.77 across five seeds vs RSiena's 0.13, against the 0.25 threshold Siena.jl itself enforces), and **~1 seed in 10 diverges outright** (2 of 24 surveyed reached `tconv.max` ≈ 50, with `diverged == false` — the clamp never fires, so `tconv_max` is the only signal). Raising the budget makes it worse, not better (`n_simulations=5` and `phase1_iterations=200` both destabilize it). The testset characterizes this rather than widening the tolerance to hide it; do not "fix" a failure here by loosening the fixture.
 
 ### Goodness of Fit (`src/gof.jl`)
 
@@ -66,9 +79,13 @@ Result type `SienaResult` provides `coef`, `stderror`, `vcov`, `confint` (StatsA
 
 The main module file defines convenience constructors mirroring RSiena function names: `siena_data()`, `siena_dependent()`, `constant_covariate()`, `get_effects()`, `include_effects!()`, `siena07()`.
 
-### Network.jl Bridge (`ext/SienaNetworkExt.jl`)
+### Networks.jl Bridge (`ext/SienaNetworkExt.jl`)
 
-Package extension on the weak dependency Network.jl (`[weakdeps]`/`[extensions]` in Project.toml; Siena keeps zero hard network-stack deps). When Network.jl is loaded it adds methods so `DependentNetwork`/`siena_dependent` accept a `Vector` of `Network` (or `BipartiteNetwork`) observations — converted via `Network.as_matrix`, preserving directedness, self-loop allowance, and one-/two-mode type, and validating equal node sets (vertex counts, mode sizes, `:vertex_names`) and directedness across waves — and so `ConstantDyadCovariate`/`VaryingDyadCovariate` (plus their snake_case wrappers) accept networks, optionally reading an edge attribute via `attr=`. Tests load Network (test target) and cover the bridge end-to-end, including a `siena07` fit from `Network` waves.
+Package extension on the weak dependency Networks.jl (`[weakdeps]`/`[extensions]` in Project.toml; Siena keeps zero hard network-stack deps). When Networks.jl is loaded it adds methods so `DependentNetwork`/`siena_dependent` accept a `Vector` of `Network` (or `BipartiteNetwork`) observations — converted via `Networks.as_matrix`, preserving directedness, self-loop allowance, and one-/two-mode type, and validating equal node sets (vertex counts, mode sizes, `:vertex_names`) and directedness across waves — and so `ConstantDyadCovariate`/`VaryingDyadCovariate` (plus their snake_case wrappers) accept networks, optionally reading an edge attribute via `attr=`. Tests load Network (test target) and cover the bridge end-to-end, including a `siena07` fit from `Network` waves.
+
+**Missing dyads are rejected, not coerced.** The bridge honours the ecosystem conversion contract (Networks.jl `src/conversion.jl`; per-path table in `Networks.jl/docs/src/guide/conversion_invariants.md`): every `Network` → Siena-matrix method calls `Networks.require_observed` with the standard `missing=:error`/`:face` policy, and takes `report=true` to return `(result, ::Networks.ConversionReport)`.
+
+The distinction matters and is easy to get wrong. Siena's own per-wave mask (`structural::Vector{BitMatrix}`, the RSiena `10`/`11` codes) records **structurally determined** ties — ties that are *fixed*, and correctly excluded from ministep candidate sets and moment statistics. Networks.jl's `missing_dyads` mask records **unobserved** ties — the analyst does not know their status. These are different claims, so there is no faithful encoding: mapping an unobserved dyad onto a structural zero would tell the estimator the tie is *known to be impossible*. The bridge used to go straight through `as_matrix`, writing the unobserved dyad's face value into the matrix as a plain observed `0`. It now raises unless the caller writes `missing=:face`. Pinned by the "Networks.jl bridge: conversion invariants" testset.
 
 ### Design Patterns
 
@@ -95,6 +112,7 @@ Package extension on the weak dependency Network.jl (`[weakdeps]`/`[extensions]`
 - Network data stored as `Vector{Matrix{Int}}` (one matrix per wave); behavior as `Vector{Vector{Int}}`
 - Covariates are auto-centered by default on construction
 - Effect shortnames (symbols like `:outdegree`, `:recip`, `:transTrip`) are the primary user-facing identifiers for including effects
+- An RSiena short name is reserved for a numerically equivalent implementation. Effects whose formula only approximates RSiena's carry a `Simple` suffix on both the type and the short name (`BalanceSimpleEffect`/`:balanceSimple`, `:avAttHigherSimple`, `:avAttLowerSimple`), and the RSiena name is left undefined rather than aliased
 - RSiena naming conventions preserved where possible (e.g., `siena07`, `sienaGOF` -> `siena_gof`)
 - All exports declared explicitly in `src/Siena.jl`
 - Tests use `@testset` blocks in `test/runtests.jl` covering types, effects, simulation, GOF, and integration

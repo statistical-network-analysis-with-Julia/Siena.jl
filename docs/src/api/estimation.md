@@ -51,6 +51,18 @@ objective_theta
 basic_rate
 ```
 
+### Restricted models (`model_type`)
+
+`SienaAlgorithm`'s `model_type` selects which dependent variables co-evolve.
+The frozen variables stay in the state (and readable by the effects of the
+simulated ones), but they take no ministeps and their own effects leave the
+parameter vector.
+
+```@docs
+simulated_variables
+restrict_effects
+```
+
 ### compute_target_statistics
 
 ```@docs
@@ -167,7 +179,7 @@ confint
 
 ### gof
 
-Method of the shared `Network.gof` generic; returns the ecosystem-wide
+Method of the shared `Networks.gof` generic; returns the ecosystem-wide
 [`GOFResult`](@ref).
 
 ```@docs

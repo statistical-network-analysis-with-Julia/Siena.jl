@@ -27,7 +27,9 @@ period starts from the observed wave (unconditional MoM, Snijders 2001).
 Result of SAOM estimation.
 
 # Fields
-- `effects::SienaEffects`: The effects object
+- `effects::SienaEffects`: The effects object that was estimated — with
+  `algorithm.model_type != :standard` this holds only the effects of the *simulated*
+  dependent variables (see [`restrict_effects`](@ref)), which is what θ is aligned with
 - `parameter_names::Vector{String}`: Names of the free parameters (θ order)
 - `estimates::Vector{Float64}`: Estimates of the full free-parameter vector
 - `standard_errors::Vector{Float64}`: Standard errors
@@ -39,10 +41,19 @@ Result of SAOM estimation.
 - `tconv_max::Float64`: Overall maximum convergence ratio (RSiena's `tconv.max`)
 - `diverged::Bool`: Whether a parameter hit the divergence clamp during estimation
   (estimates are then unreliable)
-- `n_iterations::Int`: Number of Robbins-Monro iterations used
+- `n_iterations::Int`: Number of Robbins-Monro iterations used (phases 1 and 2;
+  capped by `algorithm.max_iterations` when that budget is set)
 - `rate_estimates::Dict{Symbol, Vector{Float64}}`: Basic rate estimates per variable and period
 - `targets::Vector{Float64}`: Observed target statistics
 - `simulated_means::Vector{Float64}`: Mean simulated statistics at the estimates (phase 3)
+- `n_simulations_run::Int`: Total number of period simulations actually performed
+  over all phases (Robbins-Monro iterations, derivative estimation and phase 3)
+- `n_threads_used::Int`: Number of threads the independent simulations actually ran
+  on — `Threads.nthreads()` with `algorithm.parallel = true`, and 1 with
+  `algorithm.parallel = false`
+- `model_type::Symbol`: The `algorithm.model_type` the fit ran under (`:standard`,
+  `:networkonly` or `:behavioronly`); simulations from the result (e.g.
+  [`siena_gof`](@ref)) freeze the same dependent variables
 """
 struct SienaResult
     effects::SienaEffects
@@ -58,6 +69,9 @@ struct SienaResult
     rate_estimates::Dict{Symbol, Vector{Float64}}
     targets::Vector{Float64}
     simulated_means::Vector{Float64}
+    n_simulations_run::Int
+    n_threads_used::Int
+    model_type::Symbol
 end
 
 function Base.show(io::IO, result::SienaResult)
@@ -69,6 +83,8 @@ function Base.show(io::IO, result::SienaResult)
     result.diverged &&
         println(io, "WARNING: divergence detected (estimates hit the parameter clamp)")
     println(io, "Iterations: $(result.n_iterations)")
+    println(io, "Simulations: $(result.n_simulations_run) " *
+                "on $(result.n_threads_used) thread(s)")
     pm = build_param_map(result.effects)
     n_rate = n_free_rate_parameters(pm)
 
@@ -91,6 +107,81 @@ function Base.show(io::IO, result::SienaResult)
     z = [se[k] > 0 ? est[k] / se[k] : NaN for k in eachindex(est)]
     p = [isnan(zk) ? NaN : 2 * ccdf(Normal(), abs(zk)) for zk in z]
     print_coeftable(io, result.parameter_names[idx], est, se, p; z_values=z)
+end
+
+#==============================================================================#
+# The shared result-metadata protocol (Networks.jl `src/results.jl`)
+#==============================================================================#
+#
+# `fit_metadata(fit)` collects these accessors, so what the SAOM fit actually
+# did is programmatically inspectable rather than buried in `siena07`'s
+# docstring.
+
+estimand(::SienaResult) = :saom
+
+"""
+    objective(::SienaResult) -> Symbol
+
+`:moment` — Method of Moments by Robbins-Monro stochastic approximation. This is
+the ONLY estimator implemented (RSiena's Maximum Likelihood and Bayesian methods
+are not), so no likelihood is ever evaluated.
+"""
+objective(::SienaResult) = :moment
+
+"""
+    is_exact(::SienaResult) -> Bool
+
+Always `false`. Method of Moments solves simulated moment equations, not a
+likelihood; the moments themselves are Monte-Carlo estimates from finitely many
+simulated trajectories. There is no formula for which this collapses to exact ML.
+"""
+is_exact(::SienaResult) = false
+
+"""
+    se_method(::SienaResult) -> Symbol
+
+`:sandwich` — the method-of-moments covariance `D⁻¹ Σ D⁻ᵀ`, where `Σ` is the
+Monte-Carlo covariance of the phase-3 simulated statistics and `D` the estimated
+derivative matrix (by default the score-function/likelihood-ratio estimator over
+all phase-3 simulations; `algorithm.derivative_method = :finite_difference`
+switches to finite differences, and conditional estimation always falls back to
+them). Both factors are simulation estimates, and `D` is ridge-regularized by
+`+0.01·I` before inversion — see [`approximations`](@ref).
+"""
+se_method(::SienaResult) = :sandwich
+
+"""
+    missing_method(::SienaResult) -> Symbol
+
+`:rejected`. Missing (`NA`) tie values are not handled: a `SienaData` carries no
+unobserved-tie mask, so no dyad can be flagged as missing and none is imputed,
+dropped or conditioned on. Structurally determined values (10/11) are a different
+thing and *are* honoured.
+"""
+missing_method(::SienaResult) = :rejected
+
+function approximations(result::SienaResult)
+    out = [
+        "Method of Moments by stochastic approximation: the moments are " *
+        "Monte-Carlo estimates from simulated trajectories, so the estimates " *
+        "carry Monte-Carlo error",
+        "standard errors are D⁻¹ Σ D⁻ᵀ with BOTH factors estimated from the " *
+        "phase-3 simulations; the derivative matrix D is ridge-regularized " *
+        "(+0.01·I) before inversion, which biases the reported standard errors",
+    ]
+    result.model_type === :standard ||
+        push!(out, "model_type = :$(result.model_type): the other dependent " *
+                   "variables were FROZEN at their period-start values, and " *
+                   "their effects are not in the estimated parameter vector")
+    result.diverged &&
+        pushfirst!(out, "divergence detected: a parameter hit the clamp during " *
+                        "estimation and the estimates are unreliable")
+    result.converged ||
+        pushfirst!(out, "the fit did NOT meet the RSiena convergence standard " *
+                        "(|t-ratio| < threshold for every parameter and " *
+                        "tconv.max = $(round(result.tconv_max, digits=3)) below " *
+                        "its own): the estimates do not solve the moment equations")
+    return out
 end
 
 #==============================================================================#
@@ -255,20 +346,51 @@ function compute_simulated_statistics(data::SienaData, effects::SienaEffects,
     return _moment_statistics(data, pm, end_states, _observed_start_states(data))
 end
 
+# Every simulation the estimator runs goes through here, so an optional atomic
+# `counter` gives the exact number of simulations a fit performed (reported as
+# `SienaResult.n_simulations_run`).
+const SimCounter = Threads.Atomic{Int}
+
+# Run `body(i)` for `i in 1:n`, multi-threaded when `parallel` and strictly serially
+# on the calling thread otherwise. The loop bodies are independent (each writes only
+# its own slot and draws from its own pre-seeded RNG), so the results are identical
+# either way — `parallel` only controls *where* the work runs.
+function _run_simulations!(body::F, n::Int, parallel::Bool) where {F}
+    if parallel
+        Threads.@threads for i in 1:n
+            body(i)
+        end
+    else
+        for i in 1:n
+            body(i)
+        end
+    end
+    return nothing
+end
+
+# Number of threads the independent simulations of a fit actually run on.
+_threads_used(alg::SienaAlgorithm) = alg.parallel ? Threads.nthreads() : 1
+
 # One simulation -> moment vector (with cached pm/start states). If `scores` is
 # given, the score function of the trajectory is accumulated into it. `condvar`/
 # `cond_targets` switch to conditional simulation (see `simulate_saom`); if
 # `times` is given, it receives the per-period elapsed simulation times (the
-# stopping times, used for the conditional rate estimates).
+# stopping times, used for the conditional rate estimates); `variables` restricts the
+# ministeps to the simulated variables (`model_type`). `counter`, if given, is
+# incremented by one.
 function _simulate_moments(data::SienaData, effects::SienaEffects, pm::ParameterMap,
                            start_states::Vector{NetworkState}, θ::Vector{Float64},
                            seed::Int;
                            scores::Union{Nothing, ScoreAccumulator}=nothing,
                            condvar::Union{Symbol, Nothing}=nothing,
                            cond_targets::Union{Nothing, Vector{Int}}=nothing,
-                           times::Union{Nothing, AbstractVector{Float64}}=nothing)
+                           variables::Union{Nothing, Vector{Symbol}}=nothing,
+                           times::Union{Nothing, AbstractVector{Float64}}=nothing,
+                           counter::Union{Nothing, SimCounter}=nothing)
+    counter === nothing || Threads.atomic_add!(counter, 1)
     _, results = simulate_saom(data, effects, θ; seed=seed, scores=scores,
-                               condvar=condvar, cond_targets=cond_targets)
+                               condvar=condvar, cond_targets=cond_targets,
+                               variables=variables)
     if times !== nothing
         for (p, r) in enumerate(results)
             times[p] = r.final_state.time
@@ -336,14 +458,17 @@ Estimate ``D = \\partial E[s]/\\partial θ`` by forward finite differences with
 the Monte-Carlo noise largely cancels in the difference.
 
 The simulations are independent (each is driven by its own seeded RNG) and run
-multi-threaded; every simulation writes to its own slot and the results are reduced
-in a fixed order, so the estimate is identical to a single-threaded run regardless
-of the number of threads.
+multi-threaded unless `parallel=false`; every simulation writes to its own slot and
+the results are reduced in a fixed order, so the estimate is identical to a
+single-threaded run regardless of the number of threads.
 """
 function estimate_derivative_matrix(data::SienaData, effects::SienaEffects,
                                    θ::Vector{Float64}, n_sims::Int, rng::AbstractRNG;
                                    condvar::Union{Symbol, Nothing}=nothing,
-                                   cond_targets::Union{Nothing, Vector{Int}}=nothing)
+                                   cond_targets::Union{Nothing, Vector{Int}}=nothing,
+                                   variables::Union{Nothing, Vector{Symbol}}=nothing,
+                                   parallel::Bool=true,
+                                   counter::Union{Nothing, SimCounter}=nothing)
     pm = build_param_map(effects)
     start_states = _observed_start_states(data)
     n_params = length(θ)
@@ -355,10 +480,12 @@ function estimate_derivative_matrix(data::SienaData, effects::SienaEffects,
     # afterwards in simulation order, so it is thread-count independent.
     sim_stats = zeros(n_sims, n_params)
     function mean_stats!(dest::Vector{Float64}, θv::Vector{Float64})
-        Threads.@threads for s in 1:n_sims
+        _run_simulations!(n_sims, parallel) do s
             sim_stats[s, :] = _simulate_moments(data, effects, pm, start_states, θv,
                                                 seeds[s]; condvar=condvar,
-                                                cond_targets=cond_targets)
+                                                cond_targets=cond_targets,
+                                                variables=variables,
+                                                counter=counter)
         end
         fill!(dest, 0.0)
         for s in 1:n_sims
@@ -397,12 +524,15 @@ Unlike [`estimate_derivative_matrix`](@ref) it needs no parameter perturbations,
 the cost is `n_sims` simulations regardless of the number of parameters.
 
 The simulations are independent (one seeded RNG per simulation) and run
-multi-threaded; results are identical to a single-threaded run regardless of the
-number of threads.
+multi-threaded unless `parallel=false`; results are identical to a single-threaded
+run regardless of the number of threads.
 """
 function estimate_derivative_matrix_score(data::SienaData, effects::SienaEffects,
                                          θ::Vector{Float64}, n_sims::Int,
-                                         rng::AbstractRNG)
+                                         rng::AbstractRNG;
+                                         variables::Union{Nothing, Vector{Symbol}}=nothing,
+                                         parallel::Bool=true,
+                                         counter::Union{Nothing, SimCounter}=nothing)
     pm = build_param_map(effects)
     start_states = _observed_start_states(data)
     n_params = length(θ)
@@ -411,10 +541,11 @@ function estimate_derivative_matrix_score(data::SienaData, effects::SienaEffects
     # Seeds are drawn sequentially up front (same RNG stream as a serial loop);
     # each simulation then runs on its own seeded RNG and writes only its own rows.
     seeds = [rand(rng, 1:10^8) for _ in 1:n_sims]
-    Threads.@threads for s in 1:n_sims
+    _run_simulations!(n_sims, parallel) do s
         sacc = ScoreAccumulator(pm)
         stats[s, :] = _simulate_moments(data, effects, pm, start_states, θ,
-                                        seeds[s]; scores=sacc)
+                                        seeds[s]; scores=sacc, variables=variables,
+                                        counter=counter)
         scores[s, :] = sacc.scores
     end
     return cov(stats, scores)
@@ -491,8 +622,26 @@ end
               algorithm::SienaAlgorithm=SienaAlgorithm())
 
 Estimate SAOM parameters using unconditional Method of Moments with Robbins-Monro
-stochastic approximation. Equivalent to `siena07()` in RSiena ([`siena07`](@ref)
-is kept as an alias).
+stochastic approximation.
+
+# Relation to RSiena's `siena07()`
+[`siena07`](@ref) is kept as an alias of this function because it plays the same
+role in the workflow, and the *estimation method* is the one RSiena uses by default:
+unconditional (or conditional) Method of Moments with the same three-phase
+Robbins-Monro schedule and the same convergence standard. It is **not** a
+drop-in numerical equivalent of `siena07()`:
+
+- only Method of Moments is implemented (no Maximum Likelihood, no Bayesian);
+- a handful of effects use simplified formulas and are named accordingly (the
+  `...Simple` effects, e.g. [`BalanceSimpleEffect`](@ref)) — the RSiena short names
+  are reserved for numerically equivalent implementations;
+- dyads whose structural status changes between waves do not get RSiena's
+  correction (see [`DependentNetwork`](@ref));
+- missing (`NA`) tie values are not handled.
+
+Estimates from the two packages therefore agree within Monte-Carlo error for the
+standard structural models that are covered by the test suite, and should be
+checked against RSiena before being relied on outside that range.
 
 Phases:
 1. Derivative matrix estimation at the initial values, plus initial rough updates.
@@ -509,6 +658,18 @@ Phases:
 Convergence follows the RSiena publication standard: all per-parameter |t-ratios|
 below `algorithm.convergence_threshold` (0.1) *and* `tconv.max` below
 `algorithm.overall_convergence_threshold` (0.25).
+
+# Restricted models (`algorithm.model_type`)
+With `model_type = :networkonly` (or `:behavioronly`) only the network (behavior)
+dependent variables take ministeps; the others are *frozen* at their period-start
+values for the whole simulated period. A frozen variable stays in the simulation
+state and is still read by the effects of the simulated variables (a network rate or
+objective effect may depend on a frozen behavior, and vice versa), but it never
+changes — so its own rate and objective effects have constant moments, are not
+identified, and are dropped from the estimated parameter vector (see
+[`simulated_variables`](@ref) and [`restrict_effects`](@ref)). `algorithm.condvar`
+must be one of the simulated variables. Note this is **not** RSiena's `modelType`
+(see the warning in [`SienaAlgorithm`](@ref)).
 
 # Conditional estimation
 With `algorithm.conditional = true` (RSiena's `cond=TRUE`), estimation conditions
@@ -531,6 +692,17 @@ function fit_siena(data::SienaData, effects::SienaEffects;
     data.n_waves >= 2 ||
         throw(ArgumentError("estimation requires at least 2 observation waves"))
 
+    # `model_type`: the dependent variables that co-evolve. The others are frozen
+    # (no ministeps, values held at the period start) but stay in the state and
+    # readable by the effects of the simulated variables. A frozen variable's own
+    # rate and objective effects are unidentified — its moments are constant — so
+    # they leave the model: the restricted effects object is what the estimator
+    # (parameter map, targets, simulations, result) works with from here on.
+    sim_vars = simulated_variables(data, algorithm.model_type)
+    restricted = length(sim_vars) < length(data.dependents)
+    effects = restrict_effects(effects, sim_vars)
+    sim_variables = restricted ? sim_vars : nothing
+
     # Conditional estimation setup: fix the conditioned variable's basic rate
     # entries (they are determined by the conditioning, not by the moment
     # equations) and compute the per-period target distances.
@@ -540,13 +712,19 @@ function fit_siena(data::SienaData, effects::SienaEffects;
     if algorithm.conditional
         condvar = algorithm.condvar
         if condvar === nothing
-            length(data.dependents) == 1 ||
+            length(sim_vars) == 1 ||
                 throw(ArgumentError("conditional estimation with several dependent " *
                                     "variables requires algorithm.condvar"))
-            condvar = first(keys(data.dependents))
+            condvar = first(sim_vars)
         end
         haskey(data.dependents, condvar) ||
             throw(ArgumentError("unknown conditioning variable :$condvar"))
+        condvar in sim_vars ||
+            throw(ArgumentError("the conditioning variable :$condvar is not simulated " *
+                                "under model_type = :$(algorithm.model_type) (it is " *
+                                "frozen, so it cannot condition the simulation); " *
+                                "condition on one of " *
+                                join((":$v" for v in sim_vars), ", ")))
         cond_targets = [_observed_distance(data, condvar, p)
                         for p in 1:(data.n_waves - 1)]
         all(>(0), cond_targets) ||
@@ -564,7 +742,14 @@ function fit_siena(data::SienaData, effects::SienaEffects;
     end
 
     pm = build_param_map(effects)
-    isempty(pm.free) && throw(ArgumentError("the model has no free parameters"))
+    if isempty(pm.free)
+        throw(ArgumentError(restricted ?
+            "the model has no free parameters left after the model_type = " *
+            ":$(algorithm.model_type) restriction: only the effects of " *
+            join((":$v" for v in sim_vars), ", ") * " are estimated (the effects of " *
+            "the frozen variables are dropped, they are not identified)" :
+            "the model has no free parameters"))
+    end
     for entry in pm.free
         if effect_type(entry.effect) in (:endow, :creation)
             throw(ArgumentError("endowment/creation effects are not yet supported in " *
@@ -579,18 +764,59 @@ function fit_siena(data::SienaData, effects::SienaEffects;
     targets = _moment_statistics(data, pm, _observed_end_states(data), start_states)
     n_params = length(θ)
 
+    n_threads = _threads_used(algorithm)
+    sim_counter = SimCounter(0)
+
     if algorithm.verbose
         println("Starting SAOM estimation")
         println("Free parameters: $n_params " *
                 "($(n_free_rate_parameters(pm)) rate, " *
                 "$(n_params - n_free_rate_parameters(pm)) objective)")
+        println("Simulations per Robbins-Monro iteration: $(algorithm.n_simulations)")
+        restricted &&
+            println("Model type: :$(algorithm.model_type) — simulating " *
+                    join((":$v" for v in sim_vars), ", ") *
+                    " (the other dependent variables stay fixed)")
+        println("Execution: $(algorithm.parallel ? "parallel" : "serial") " *
+                "on $n_threads thread(s)")
+        algorithm.max_iterations === nothing ||
+            println("Robbins-Monro iteration budget: $(algorithm.max_iterations)")
     end
 
     total_iterations = 0
     diverged = false
-    sim(θv) = _simulate_moments(data, effects, pm, start_states, θv,
-                                rand(rng, 1:10^8);
-                                condvar=condvar, cond_targets=cond_targets)
+
+    # One Robbins-Monro step's simulated moment vector: the average of
+    # `algorithm.n_simulations` independent simulations at θ (RSiena's default is a
+    # single simulation per iteration; averaging more reduces the update noise).
+    function sim(θv)
+        s = _simulate_moments(data, effects, pm, start_states, θv, rand(rng, 1:10^8);
+                              condvar=condvar, cond_targets=cond_targets,
+                              variables=sim_variables, counter=sim_counter)
+        for _ in 2:algorithm.n_simulations
+            s .+= _simulate_moments(data, effects, pm, start_states, θv,
+                                    rand(rng, 1:10^8); condvar=condvar,
+                                    cond_targets=cond_targets,
+                                    variables=sim_variables, counter=sim_counter)
+        end
+        algorithm.n_simulations == 1 || (s ./= algorithm.n_simulations)
+        return s
+    end
+
+    # Robbins-Monro iteration budget (`algorithm.max_iterations`): the number of
+    # phase-1/phase-2 iterations still allowed. Phase-3 simulations are not
+    # iterations and do not draw on it.
+    budget_left() = algorithm.max_iterations === nothing ? typemax(Int) :
+                    algorithm.max_iterations - total_iterations
+    budget_hit = false
+    function note_budget!()
+        budget_hit && return
+        budget_hit = true
+        @warn "reached the Robbins-Monro iteration budget " *
+              "(max_iterations = $(algorithm.max_iterations)) before finishing " *
+              "phase 2; the remaining phase-1/phase-2 iterations are skipped and " *
+              "the estimates are likely unconverged"
+    end
 
     function clamp_tracked!()
         if _clamp_parameters!(θ, pm) && !diverged
@@ -606,11 +832,15 @@ function fit_siena(data::SienaData, effects::SienaEffects;
     ==========================================================================#
     algorithm.verbose && println("\n--- Phase 1 ---")
     D = estimate_derivative_matrix(data, effects, θ, algorithm.derivative_sims, rng;
-                                   condvar=condvar, cond_targets=cond_targets)
+                                   condvar=condvar, cond_targets=cond_targets,
+                                   variables=sim_variables,
+                                   parallel=algorithm.parallel, counter=sim_counter)
     D += 0.01 * I
 
     gain = algorithm.initial_gain
-    for _ in 1:algorithm.phase1_iterations
+    n_phase1 = min(algorithm.phase1_iterations, budget_left())
+    n_phase1 < algorithm.phase1_iterations && note_budget!()
+    for _ in 1:n_phase1
         total_iterations += 1
         score = sim(θ) .- targets
         update_parameters!(θ, score, D, gain)
@@ -622,18 +852,28 @@ function fit_siena(data::SienaData, effects::SienaEffects;
     ==========================================================================#
     algorithm.verbose && println("\n--- Phase 2 ---")
     for subphase in 1:algorithm.n_subphases
+        # The iteration budget is exhausted: skip the rest of phase 2 and go to
+        # phase 3 with the parameters reached so far.
+        if budget_left() <= 0
+            note_budget!()
+            break
+        end
         algorithm.verbose && println("  Subphase $subphase")
         if subphase == 1 || subphase == algorithm.n_subphases
             D = estimate_derivative_matrix(data, effects, θ, algorithm.derivative_sims,
                                            rng; condvar=condvar,
-                                           cond_targets=cond_targets)
+                                           cond_targets=cond_targets,
+                                           variables=sim_variables,
+                                           parallel=algorithm.parallel,
+                                           counter=sim_counter)
             D += 0.01 * I
         end
         gain = max(algorithm.initial_gain * 0.5^subphase, algorithm.min_gain)
         # Polyak-Ruppert averaging: the subphase result is the average of the θ
         # iterates over the subphase (excluding a short warm start), not the last
         # iterate — this suppresses most of the Robbins-Monro Monte-Carlo noise.
-        n_iter = algorithm.phase1_iterations
+        n_iter = min(algorithm.phase1_iterations, budget_left())
+        n_iter < algorithm.phase1_iterations && note_budget!()
         n_warm = n_iter ÷ 4
         θ_sum = zeros(n_params)
         n_avg = 0
@@ -669,13 +909,15 @@ function fit_siena(data::SienaData, effects::SienaEffects;
     # single-threaded run regardless of the thread count.
     phase3_seeds = [rand(rng, 1:10^8) for _ in 1:n3]
     algorithm.verbose &&
-        println("  Running $n3 simulations on $(Threads.nthreads()) thread(s)")
-    Threads.@threads for iter in 1:n3
+        println("  Running $n3 simulations on $n_threads thread(s)")
+    _run_simulations!(n3, algorithm.parallel) do iter
         if use_score
             sacc = ScoreAccumulator(pm)
             phase3_stats[iter, :] = _simulate_moments(data, effects, pm, start_states,
                                                       θ, phase3_seeds[iter];
-                                                      scores=sacc)
+                                                      scores=sacc,
+                                                      variables=sim_variables,
+                                                      counter=sim_counter)
             phase3_scores[iter, :] = sacc.scores
         else
             times = phase3_times === nothing ? nothing :
@@ -684,10 +926,10 @@ function fit_siena(data::SienaData, effects::SienaEffects;
                                                       θ, phase3_seeds[iter];
                                                       condvar=condvar,
                                                       cond_targets=cond_targets,
-                                                      times=times)
+                                                      variables=sim_variables,
+                                                      times=times, counter=sim_counter)
         end
     end
-    total_iterations += n3
 
     mean_sim_stats = vec(mean(phase3_stats, dims=1))
     deviations = mean_sim_stats .- targets
@@ -709,7 +951,10 @@ function fit_siena(data::SienaData, effects::SienaEffects;
     D_final = use_score ? cov(phase3_stats, phase3_scores) :
               estimate_derivative_matrix(data, effects, θ, algorithm.derivative_sims,
                                          rng; condvar=condvar,
-                                         cond_targets=cond_targets)
+                                         cond_targets=cond_targets,
+                                         variables=sim_variables,
+                                         parallel=algorithm.parallel,
+                                         counter=sim_counter)
     D_final += 0.01 * I
 
     # Covariance of the estimates: D^{-1} Σ D^{-T}
@@ -767,7 +1012,10 @@ function fit_siena(data::SienaData, effects::SienaEffects;
         total_iterations,
         rate_estimates,
         targets,
-        mean_sim_stats
+        mean_sim_stats,
+        sim_counter[],
+        n_threads,
+        algorithm.model_type
     )
 end
 
@@ -775,7 +1023,10 @@ end
     siena07(data::SienaData, effects::SienaEffects;
             algorithm::SienaAlgorithm=SienaAlgorithm())
 
-Alias for [`fit_siena`](@ref), keeping the RSiena function name.
+Alias for [`fit_siena`](@ref), keeping the RSiena function name for the same step of
+the workflow. See [`fit_siena`](@ref) for how far the correspondence with RSiena's
+`siena07()` goes — the estimation method is the same, but the two are not
+numerically interchangeable in general.
 """
 siena07(data::SienaData, effects::SienaEffects; kwargs...) =
     fit_siena(data, effects; kwargs...)

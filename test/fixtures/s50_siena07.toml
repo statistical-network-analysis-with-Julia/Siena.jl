@@ -1,0 +1,100 @@
+name = "s50_siena07"
+
+[provenance]
+r_version = "4.6.1"
+rsiena_version = "1.6.6"
+seed = 20260713
+script = "test/fixtures/r/s50_siena07.R"
+date = "2026-07-13"
+dataset = "RSiena::s50 (van Duijn): 50 actors, 3 friendship waves, smoke1 covariate"
+model = "unconditional MoM (cond=FALSE); rate x2, outdegree, reciprocity, transTrip, smoke1 alter/ego/similarity"
+algorithm = "sienaAlgorithmCreate(nsub=4, n3=1000) -- RSiena defaults"
+replication_seeds = "101,202,303,404,505"
+
+[tolerance]
+# READ `rsiena_seed_sd` IN [values] FIRST. It is RSiena refitting this very
+# model five more times and disagreeing with itself; it is the Monte-Carlo
+# width of the estimator, and no cross-implementation tolerance can honestly
+# sit below it.
+#
+# The Julia side of this comparison does NOT compare a single siena07 run.
+# A single run of either implementation is a draw from a cloud, so a
+# single-run comparison can only be given a tolerance so wide it tests
+# nothing. The Julia testset instead averages FIVE Siena.jl fits at declared
+# seeds and compares the MEAN, whose Monte-Carlo error is sd/sqrt(5). The
+# tolerances below are set from those measured widths, and every one of them
+# is stated as a fraction of the corresponding RSiena STANDARD ERROR -- the
+# scale at which a difference would actually change a conclusion.
+#
+# Targets are the exception: a DETERMINISTIC function of the observed waves
+# (no simulation involved), so they get machine precision and any
+# disagreement is a bug in an effect formula, full stop.
+targets = 1e-6
+#
+# Objective coefficients (density, reciprocity, transTrip, smoke1 alter/ego/
+# similarity). Measured: Siena.jl's seed-to-seed sd on these is 0.006-0.045,
+# so the 5-fit mean has Monte-Carlo error 0.003-0.020; RSiena's own sd is
+# 0.002-0.006. The largest observed |mean(Siena.jl) - RSiena| is 0.032
+# (reciprocity). 0.05 clears that and is at most 0.67 of the SMALLEST
+# standard error in the model (transTrip, 0.075) and ~0.4 of a typical one:
+# a discrepancy big enough to move a published conclusion cannot hide here.
+coefficients = 0.05
+#
+# Rate parameters are the least-constrained direction of the moment
+# equations and carry an order of magnitude more noise: RSiena's own sd is
+# ~0.033, Siena.jl's ~0.18, and their standard errors are ~1.0. Largest
+# observed |mean - RSiena| is 0.29 (period-1 rate). 0.40 clears it and is
+# still under 0.4 of a standard error.
+rate_coefficients = 0.4
+#
+# Standard errors come out of the phase-3 covariance D^-1 Sigma D^-T, in
+# which BOTH factors are Monte-Carlo estimates AND the two implementations
+# use DIFFERENT derivative estimators (RSiena: finite differences with
+# common random numbers; Siena.jl: the score-function estimator by default).
+# Compared as the mean of the same five fits. Largest observed |mean - R| on
+# the objective parameters is 0.015 (similarity, 6% relative). 0.02 clears
+# it and is 27% of the smallest SE. The rate SEs are far noisier (observed
+# 0.14 absolute, 14% relative on the period-1 rate) and get 0.25.
+std_errors = 0.02
+rate_std_errors = 0.25
+
+[values]
+# Effect order is RSiena's; Siena.jl orders ego before alter, so the Julia
+# test permutes into this order rather than assuming positions match.
+effect_names = ["constant friendship rate (period 1)", "constant friendship rate (period 2)", "outdegree (density)", "reciprocity", "transitive triplets", "smoke1 alter", "smoke1 ego", "smoke1 similarity"]
+targets = [115, 106, 238, 160, 225, -1.4399999999999755, 3.5600000000000218, 23.037142857142864]
+
+# Coefficients and SEs are split into the two RATE parameters and the six
+# OBJECTIVE parameters, because they are compared at different tolerances:
+# the rates carry an order of magnitude more Monte-Carlo noise, and lumping
+# them together would force one loose tolerance onto all eight and destroy
+# the test's power over the six that matter.
+rate_coefficients = [6.4296154120476334, 5.3604287611512031]
+coefficients = [-2.6629025776380346, 2.3960309903311301, 0.60380313254598805, 0.046039885440159301, 0.14929016592715511, 0.42405904019536778]
+rate_std_errors = [1.0357844113835506, 0.91961916381954367]
+std_errors = [0.11789543799524459, 0.19540665670976293, 0.074895269657444696, 0.115442399507524, 0.12092928600073312, 0.23833742047893197]
+
+# ...and the same eight in RSiena's own order, for reference.
+all_coefficients = [6.4296154120476334, 5.3604287611512031, -2.6629025776380346, 2.3960309903311301, 0.60380313254598805, 0.046039885440159301, 0.14929016592715511, 0.42405904019536778]
+all_std_errors = [1.0357844113835506, 0.91961916381954367, 0.11789543799524459, 0.19540665670976293, 0.074895269657444696, 0.115442399507524, 0.12092928600073312, 0.23833742047893197]
+
+# Convergence t-ratios: (mean simulated statistic - target) / sd, per
+# parameter, plus RSiena's overall convergence ratio tconv.max. These are
+# mean-zero Monte-Carlo quantities -- two implementations are NOT expected
+# to reproduce each other's values, only to satisfy the same publication
+# standard (|t| < 0.1 per parameter, tconv.max < 0.25). Frozen so the
+# standard being met is on the record.
+t_ratios = [-0.099779613771861994, 0.011889063343193229, -0.060547315857188255, -0.067926868031372711, -0.054253237290213412, 0.050756158542035877, 0.048295770808568117, -0.057511288604388082]
+tconv_max = 0.13144376337961522
+
+# RSiena disagreeing with itself over 5 further seeds: the Monte-Carlo
+# width that justifies every tolerance above.
+rsiena_seed_sd = [0.032946453049235588, 0.034632651299047308, 0.0035667292811727329, 0.0042545202892230313, 0.0023588171766660152, 0.0052829361516158659, 0.0031495904239287431, 0.0056574991115183907]
+
+# Reference only -- NOT asserted. Issue #8 asks for the derivative matrix
+# and the phase-3 statistic covariance to be compared too; Siena.jl exposes
+# NEITHER on SienaResult (only the derived theta-covariance, whose sqrt-diag
+# is std_errors above). Frozen here so that gap is documented and the check
+# is one accessor away once they are exposed.
+derivative_matrix_diag = [9.237180794470822, 9.2517142209626826, 306.98089996271511, 140.73858404794825, 1249.1902587954755, 131.76938615579715, 118.88667120520287, 37.375086771303259]
+phase3_statistic_cov_diag = [104.5001001001001, 77.997972972972974, 497.87567467467466, 409.15728128128126, 4805.6855645645646, 185.01158023583588, 172.5364116272273, 47.036698163478114]

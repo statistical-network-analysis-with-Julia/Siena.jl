@@ -284,7 +284,7 @@ end
 
 Result of a [`siena_gof`](@ref) goodness of fit assessment for ONE statistic
 (RSiena-style, keeping the Mahalanobis machinery). Convertible to the
-ecosystem-wide `GOFResult` (from Network.jl) via `GOFResult(result)`, which is
+ecosystem-wide `GOFResult` (from Networks.jl) via `GOFResult(result)`, which is
 also what the shared [`gof`](@ref) generic returns; display goes through the
 shared GOF table.
 
@@ -325,7 +325,7 @@ _gof_statistic(r::SienaGOFResult) =
     GOFResult(result::SienaGOFResult; model="SAOM") -> GOFResult
 
 Convert an RSiena-style [`SienaGOFResult`](@ref) to the ecosystem-wide
-`GOFResult` (from Network.jl), carrying the Monte-Carlo p-value of the
+`GOFResult` (from Networks.jl), carrying the Monte-Carlo p-value of the
 Mahalanobis distance as the overall p-value.
 """
 GOFResult(result::SienaGOFResult; model::AbstractString="SAOM") =
@@ -370,9 +370,15 @@ function siena_gof(result::SienaResult, data::SienaData, statistic::AbstractGOFS
     n_levels = length(observed)
     simulated = zeros(Int, n_sims, n_levels)
 
+    # The GOF simulations reproduce the fitted model, including its `model_type`
+    # restriction: a dependent variable that was frozen during estimation is frozen
+    # here too (simulating it would use effects the fit never estimated).
+    sim_vars = result.model_type == :standard ? nothing :
+               simulated_variables(data, result.model_type)
+
     for s in 1:n_sims
         state_sim, _ = simulate_saom(data, result.effects, result.estimates;
-                                     seed=rand(rng, 1:10^8))
+                                     seed=rand(rng, 1:10^8), variables=sim_vars)
         _, sim_counts = compute_gof_statistic(stat, state_sim, data)
         simulated[s, :] = sim_counts
     end
@@ -402,7 +408,7 @@ function siena_gof(result::SienaResult, data::SienaData, statistic::AbstractGOFS
 end
 
 #==============================================================================#
-# Shared `gof` generic (Network.jl)
+# Shared `gof` generic (Networks.jl)
 #==============================================================================#
 
 """
@@ -410,7 +416,7 @@ end
     gof(result::SienaResult, data::SienaData, statistics::AbstractVector; ...)
 
 Goodness-of-fit assessment of an estimated SAOM, as a method of the shared
-`Network.gof` generic: simulate from the estimated model with [`siena_gof`](@ref)
+`Networks.gof` generic: simulate from the estimated model with [`siena_gof`](@ref)
 and return the ecosystem-wide `GOFResult` (one table per statistic).
 
 `statistic` is an [`AbstractGOFStatistic`](@ref) (e.g.
