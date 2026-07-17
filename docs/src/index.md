@@ -174,3 +174,18 @@ Convergence is assessed using t-ratios: the ratio of the deviation between obser
 4. Steglich, C., Snijders, T.A.B., Pearson, M. (2010). Dynamic networks and behavior: Separating selection from influence. *Sociological Methodology*, 40(1), 329-393.
 
 5. Snijders, T.A.B. (2005). Models for longitudinal network data. In P.J. Carrington, J. Scott, S. Wasserman (Eds.), *Models and Methods in Social Network Analysis* (pp. 215-247). Cambridge University Press.
+
+## Citation
+
+If you use Siena.jl in your work, please cite it using the entry in
+[`CITATION.bib`](https://github.com/statistical-network-analysis-with-Julia/Siena.jl/blob/main/CITATION.bib):
+
+```biblatex
+@misc{SNWJSienaJL,
+  author = {{Statistical Network Analysis with Julia}},
+  title = {Siena.jl: Stochastic Actor-Oriented Models for Longitudinal Network Data in Julia},
+  year = {2026},
+  url = {https://github.com/statistical-network-analysis-with-Julia/Siena.jl},
+  note = {Homepage: https://statistical-network-analysis-with-Julia.github.io/Siena.jl; GitHub: https://github.com/statistical-network-analysis-with-Julia}
+}
+```

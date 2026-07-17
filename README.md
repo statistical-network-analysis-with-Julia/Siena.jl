@@ -324,6 +324,21 @@ For more detailed documentation, see:
 
 4. [RSiena on CRAN](https://cran.r-project.org/package=RSiena)
 
+## Citation
+
+If you use Siena.jl in your work, please cite it using the entry in
+[`CITATION.bib`](CITATION.bib):
+
+```biblatex
+@misc{SNWJSienaJL,
+  author = {{Statistical Network Analysis with Julia}},
+  title = {Siena.jl: Stochastic Actor-Oriented Models for Longitudinal Network Data in Julia},
+  year = {2026},
+  url = {https://github.com/statistical-network-analysis-with-Julia/Siena.jl},
+  note = {Homepage: https://statistical-network-analysis-with-Julia.github.io/Siena.jl; GitHub: https://github.com/statistical-network-analysis-with-Julia}
+}
+```
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
