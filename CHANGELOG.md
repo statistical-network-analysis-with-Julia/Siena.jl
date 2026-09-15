@@ -154,6 +154,8 @@ retain uncertainty diagnostics, and replace transcribed R targets with a generat
 
 ### Changed
 
+- Documentation uses the default Documenter themes, with a new package-specific
+  SVG icon and browser favicon in the official Julia logo colors.
 - Phase 2 applies Polyak–Ruppert averaging over each subphase (estimates
   carry substantially less Monte-Carlo noise at the same budget).
 - GOF p-values are two-sided Monte-Carlo `(1+k)/(N+1)` with a
