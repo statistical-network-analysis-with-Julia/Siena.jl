@@ -1,0 +1,39 @@
+name = "s50_allowonly_cond"
+
+[provenance]
+r_version = "4.6.1"
+rsiena_version = "1.6.6"
+seed = 20261007
+script = "test/fixtures/r/s50_allowonly_cond.R"
+date = "2026-10-07"
+dataset = "RSiena::s50 friendship; period 1 made up-only (pmax) or down-only (pmin)"
+model = "conditional MoM (cond=TRUE), allowOnly = TRUE; density, recip, transTrip"
+algorithm = "sienaAlgorithmCreate(cond=TRUE, nsub=4, n3=1000)"
+replication_seeds = "131,242,353,464,575,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014"
+
+[tolerance]
+# Reference = mean of the twenty RSiena fits per panel; `*_seed_sd` is the per-fit
+# seed-to-seed sd. The rate standard errors are RSiena's vrate (already an sd).
+default = 0.0
+
+[values]
+uponly_n_fits = 20
+uponly_effect_names = ["outdegree (density)", "reciprocity", "transitive triplets"]
+uponly_coefficients = [-3.5100406333544449, 3.0779419778736248, 0.57472261549962977]
+uponly_coefficients_seed_sd = [0.013257376163806957, 0.018177220790323835, 0.0030904740969772645]
+uponly_std_errors = [0.24244204541503586, 0.30405825085646626, 0.079274163406649639]
+uponly_std_errors_seed_sd = [0.015837277556098674, 0.013377450071126265, 0.0045462181154287632]
+uponly_rates = [1.6586760261963329, 6.6043818051661392]
+uponly_rates_seed_sd = [0.0081079901247281157, 0.028708966239325149]
+uponly_rate_std_errors = [0.21555138674230107, 0.96634677443186401]
+uponly_rate_std_errors_seed_sd = [0.0039488756724793024, 0.02581896363563212]
+downonly_n_fits = 20
+downonly_effect_names = ["outdegree (density)", "reciprocity", "transitive triplets"]
+downonly_coefficients = [-2.674546586681362, 3.2051184048280676, 0.95647783468151049]
+downonly_coefficients_seed_sd = [0.011694605664781308, 0.015816065015152248, 0.0086276622071923374]
+downonly_std_errors = [0.19868342481068854, 0.3035537423943695, 0.17300715809924311]
+downonly_std_errors_seed_sd = [0.013336436650406703, 0.014127151990485764, 0.010827346522248135]
+downonly_rates = [2.5359367990061803, 5.4596715086251892]
+downonly_rates_seed_sd = [0.015790921017824963, 0.050825880283050275]
+downonly_rate_std_errors = [0.36746814946328127, 0.8642833223787052]
+downonly_rate_std_errors_seed_sd = [0.0093878809899929187, 0.014715213072364654]

@@ -1,0 +1,27 @@
+name = "s50_siena07_undirected"
+
+[provenance]
+r_version = "4.6.1"
+rsiena_version = "1.6.6"
+seed = 20261003
+script = "test/fixtures/r/s50_siena07_undirected.R"
+date = "2026-10-02"
+dataset = "RSiena::s50 friendship, symmetrised; smoke1"
+model = "undirected, modelType 2 (forcing), conditional MoM; density, transTriads, smoke1 similarity"
+algorithm = "sienaAlgorithmCreate(nsub=4, n3=1000) (cond = NA -> conditional)"
+replication_seeds = "111,222,333,444,555"
+
+[tolerance]
+# See the Julia testset: tolerances come from the measured widths.
+default = 0.0
+
+[values]
+effect_names = ["degree (density)", "transitive triads", "smoke1 similarity"]
+coefficients = [-1.991961267165792, 1.0206031088043654, 0.37724646823888308]
+coefficients_seed_sd = [0.0039851427072029755, 0.0037841323965166949, 0.0069070519840158341]
+std_errors = [0.11891340868550516, 0.12668429212809573, 0.23795897297296814]
+std_errors_seed_sd = [0.0028533156567606007, 0.0021060671840441927, 0.0087315340820884671]
+rates = [2.3892069168905929, 1.9785612462581428]
+rates_seed_sd = [0.01184512394005733, 0.015690375534974207]
+rate_std_errors = [0.39594858796437621, 0.30925755804297933]
+tconv_max = [0.04953228025710249, 0.087723493261276694, 0.034636645188361799, 0.086183703956191349, 0.04438920506161996, 0.052807457050150053]

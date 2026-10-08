@@ -1,0 +1,30 @@
+name = "s50_siena07_interaction"
+
+[provenance]
+r_version = "4.6.1"
+rsiena_version = "1.6.6"
+seed = 20261005
+script = "test/fixtures/r/s50_siena07_interaction.R"
+date = "2026-10-02"
+dataset = "RSiena::s50: 50 actors, 3 friendship waves, smoke1"
+model = "conditional MoM (cond=TRUE); density, recip, gwespFF, smoke1 alter, smoke1 ego, smoke1 ego x reciprocity"
+algorithm = "sienaAlgorithmCreate(cond=TRUE, nsub=4, n3=1000)"
+replication_seeds = "101,202,303,404,505"
+
+[tolerance]
+# Reference = mean of the six RSiena fits; `*_seed_sd` is the per-fit
+# seed-to-seed sd. The Julia test compares the mean of its own fits and
+# derives each tolerance from both measured widths (see the testset).
+default = 0.0
+
+[values]
+effect_names = ["outdegree (density)", "reciprocity", "GWESP I -> K -> J (69)", "smoke1 alter", "smoke1 ego", "smoke1 ego x reciprocity"]
+coefficients = [-2.8804697576088367, 2.5982639786476871, 1.6352124908910823, 0.022677703865381035, 0.22766395831901637, -0.46317503350805328]
+coefficients_seed_sd = [0.0018685729691917232, 0.004910410178113736, 0.0037532710173479571, 0.0049085497791468997, 0.0054570573430499378, 0.0088064580139896632]
+std_errors = [0.1394357081441385, 0.1963484782707402, 0.16313199009951665, 0.10313730339604696, 0.14004450639257449, 0.34400347886492427]
+std_errors_seed_sd = [0.005198085992177138, 0.0046904119571946094, 0.0045370117100741476, 0.0030835170437073446, 0.0038266501148369776, 0.0099016246793007436]
+rates = [6.548668574070045, 5.2753749856160681]
+rates_seed_sd = [0.028282995094521115, 0.018930421692332479]
+rate_std_errors = [1.1104193955079138, 0.87366561427112499]
+rate_std_errors_seed_sd = [0.045366328270721817, 0.020804174387202539]
+tconv_max = [0.08305178686635753, 0.10193953505032854, 0.086042031157392007, 0.10783451872744577, 0.084940882260837888, 0.13486990194481246]
